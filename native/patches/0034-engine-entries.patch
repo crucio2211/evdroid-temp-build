@@ -375,3 +375,37 @@ index 0000000..7588f73
 +    yq = ((int64_t)y << Q) / DELTA_FIXED_ONE;
 +    return exp_to_fixed(((ln_fixed(x) >> 4) * (yq >> 4)) >> 22);
 +}
+diff --git a/src/delta/delta.c b/src/delta/delta.c
+index cf9f0d8..3876b60 100644
+--- a/src/delta/delta.c
++++ b/src/delta/delta.c
+@@ -2176,6 +2176,17 @@ void npush_i(delta_state *d, int32_t x)
+     vnspush(d, &v);
+ }
+ 
++/* 6.1's push of a double, here a fixed value. */
++void npush_f(delta_state *d, int32_t x)
++{
++    delta_operand v;
++
++    v.ptr = &x;
++    v.kind = DK_FIXED;
++    v.flag = 0;
++    vnspush(d, &v);
++}
++
+ void npush_s(delta_state *d, int32_t x)
+ {
+     delta_operand v;
+diff --git a/src/delta/delta.h b/src/delta/delta.h
+index 75d58ee..86860d0 100644
+--- a/src/delta/delta.h
++++ b/src/delta/delta.h
+@@ -768,6 +768,7 @@ void forceErrorBacktrack(delta_state *d);
+ void push_ptr_init(delta_state *d, delta_loc *p);
+ void set_saved_ptrs(delta_state *d, int32_t was, int32_t now);
+ void npush_i(delta_state *d, int32_t x);
++void npush_f(delta_state *d, int32_t x);
+ void npush_s(delta_state *d, int32_t x);
+ void vscaninit(delta_state *d);
+ delta_node *vmovel(delta_state *d, delta_node *t, uint8_t f);
