@@ -69,7 +69,7 @@ jobs:
           export DELTA_RULE_TRACE=0
           export MALLOC_CHECK_=3
           (valgrind --version 2>/dev/null || sudo apt-get install -y valgrind >/dev/null 2>&1)
-          EVV_HETERO=on valgrind -q --undef-value-errors=no --error-exitcode=99 "$bin" @/tmp/loud.txt /tmp/loud.wav 2>&1 | head -60
+          EVV_HETERO=on valgrind -q --undef-value-errors=no --error-exitcode=99 "$bin" @/tmp/loud.txt /tmp/loud.wav 2>&1 | tail -80
           python3 -c "
           import wave, array
           w = wave.open('/tmp/loud.wav')
