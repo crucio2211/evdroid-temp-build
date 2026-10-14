@@ -1,0 +1,70 @@
+name: langcheck
+
+# Temp-only: verify one non-English language module end to end (build the
+# phonemes harness for it, speak its cases, measure peak loudness). The
+# enus-grained oracle stays untouched.
+on:
+  workflow_dispatch:
+    inputs:
+      lang:
+        description: 'Language module to build (e.g. lang/fifi, lang/ptbr)'
+        required: true
+      sentence:
+        description: 'One sentence in the language, for the loudness probe'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: language check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out without submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Make the in-tree engine a repo for patch application
+        run: |
+          git -C native/openevv init -q
+          git -C native/openevv -c user.email=ci@temp -c user.name=temp add -A
+          git -C native/openevv -c user.email=ci@temp -c user.name=temp commit -qm base
+
+      - name: Lay our patches on
+        run: |
+          for patch in "$GITHUB_WORKSPACE"/native/patches/*.patch; do
+            [ -e "$patch" ] || continue
+            git -C native/openevv apply --whitespace=nowarn "$patch"
+            echo "applied $(basename "$patch")"
+          done
+
+      - name: Build the phonemes harness
+        working-directory: native/openevv
+        run: make phonemes-bin LANGS="${{ inputs.lang }}" RULES="bytecode" -j"$(nproc)"
+
+      - name: Say its cases
+        working-directory: native/openevv
+        run: |
+          tag="$(basename "${{ inputs.lang }}")"
+          bin="./build/phonemes-$tag"
+          [ -x "$bin" ] || bin="./build/phonemes"
+          "$bin" "../accent-cases-$tag.txt"
+
+      - name: Peak loudness of one sentence
+        working-directory: native/openevv
+        run: |
+          make probe LANGS="${{ inputs.lang }}" RULES="bytecode" -j"$(nproc)"
+          printf '%s\n' "${{ inputs.sentence }}" > /tmp/loud.txt
+          EVV_HETERO=on ./build/probe @/tmp/loud.txt /tmp/loud.wav
+          python3 -c "
+          import wave, array
+          w = wave.open('/tmp/loud.wav')
+          n = w.getnframes()
+          a = array.array('h', w.readframes(n))
+          peak = max(abs(x) for x in a)
+          rms = int((sum(x * x for x in a) / len(a)) ** 0.5)
+          print('peak=%d rms=%d frames=%d' % (peak, rms, n))
+          "
