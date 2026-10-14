@@ -74,6 +74,13 @@ jobs:
           git -c user.email=ci@temp -c user.name=temp commit -qm 'dict bake' || true
           git push temp HEAD:engine-bake --force
 
+      - name: Baked readings check (temp-only)
+        working-directory: native/openevv
+        run: |
+          for w in annan biogen gustafson helena minot sentelle buffeted buffets celtics vis-a-vis; do
+            python3 tools/module/dict.py find "$w" || true
+          done
+
       - name: Rebuild the harness with baked dictionaries (temp-only)
         working-directory: native/openevv
         run: make phonemes-bin LANGS="${{ inputs.lang }}" RULES="bytecode" -j"$(nproc)"
