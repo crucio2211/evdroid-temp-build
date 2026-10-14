@@ -17,7 +17,7 @@ on:
         default: 'lang/enus'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   accents:
