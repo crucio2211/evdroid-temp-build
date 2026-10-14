@@ -1,0 +1,17 @@
+diff --git a/src/klatt/klatt_run.c b/src/klatt/klatt_run.c
+--- a/src/klatt/klatt_run.c
++++ b/src/klatt/klatt_run.c
+@@ -611,11 +611,13 @@ int callSynthesizeArray(DeltaThis *d, Cell *rate, Cell *c2, Cell *c3,
+     v3 = cell_long(c3);
+     v4 = cell_long(c4);
+     v5 = cell_long(c5);
+     v6 = cell_word(c6);
+     v7 = cell_word(c7);
+     v8 = cell_word(c8);
+     v9 = cell_word(c9);
+     v10 = cell_word(c10);
+     v11 = cell_word(c11);
+     v12 = cell_word(c12);
+     v13 = c13->w;
++    fprintf(stderr, "synthargs: v12=%d v13=%d p12=%d p13=%d\n", v12, v13, (int)c12->pad, (int)c13->pad);
++    fflush(stderr);
