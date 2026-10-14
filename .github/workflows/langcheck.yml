@@ -61,6 +61,7 @@ jobs:
           bin="./build/probe-$tag"
           [ -x "$bin" ] || bin="./build/probe"
           printf '%s\n' "${{ inputs.sentence }}" > /tmp/loud.txt
+          export DELTA_RULE_TRACE=1
           EVV_HETERO=on "$bin" @/tmp/loud.txt /tmp/loud.wav
           python3 -c "
           import wave, array
