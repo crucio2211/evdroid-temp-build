@@ -161,6 +161,7 @@ object Dictionaries {
 		"esp" to 0x00020000, "esm" to 0x00020001,
 		"fra" to 0x00030000, "frc" to 0x00030001,
 		"deu" to 0x00040000, "ita" to 0x00050000,
+		"fin" to 0x00090000, "ptb" to 0x00070000,
 		"jpn" to 0x00080000, "pol" to 0x00110000, "plp" to 0x00110000
 	)
 
