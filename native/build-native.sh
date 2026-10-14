@@ -78,6 +78,17 @@ for patch in "$here"/patches/*.patch; do
 	echo "applied $(basename "$patch")"
 done
 
+# Bake the dictionaries' text into the rules before compiling: dict.py reads
+# the generated rule code and rewrites arms and records out of the .dict
+# text, and the compile below picks up what changed. Only English has text
+# changes to bake; the other languages' dictionaries are untouched.
+make -C "$engine" -f Makefile rulecode LANGS="$LANGS"
+if command -v python3 >/dev/null 2>&1; then
+	( cd "$engine" && EVV_LANG_DIR=lang/enus python3 tools/module/dict.py build )
+else
+	echo "no python3: dictionaries stay as last baked" >&2
+fi
+
 # Every directory the engine's headers sit in, the same set its Makefile builds
 # its own include path from. They stay relative because the link below runs
 # from the engine's own directory.
