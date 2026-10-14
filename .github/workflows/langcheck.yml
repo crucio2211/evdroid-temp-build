@@ -57,8 +57,11 @@ jobs:
         working-directory: native/openevv
         run: |
           make probe LANGS="${{ inputs.lang }}" RULES="bytecode" -j"$(nproc)"
+          tag="$(basename "${{ inputs.lang }}")"
+          bin="./build/probe-$tag"
+          [ -x "$bin" ] || bin="./build/probe"
           printf '%s\n' "${{ inputs.sentence }}" > /tmp/loud.txt
-          EVV_HETERO=on ./build/probe @/tmp/loud.txt /tmp/loud.wav
+          EVV_HETERO=on "$bin" @/tmp/loud.txt /tmp/loud.wav
           python3 -c "
           import wave, array
           w = wave.open('/tmp/loud.wav')
