@@ -18,7 +18,6 @@ on:
 
 permissions:
   contents: write
-  workflows: write
 
 jobs:
   accents:
@@ -71,6 +70,7 @@ jobs:
           git diff --stat | tail -8
           git remote add temp "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/crucio2211/evdroid-temp-build.git" || true
           git -c user.email=ci@temp -c user.name=temp add -A
+          git rm -r --cached .github --quiet
           git -c user.email=ci@temp -c user.name=temp commit -qm 'dict bake' || true
           git push temp HEAD:engine-bake --force
 
