@@ -44,7 +44,7 @@ jobs:
       - name: Dump patched klatt region
         working-directory: native/openevv
         run: |
-          sed -n '600,630p' src/klatt/klatt_run.c
+          sed -n '616,624p' src/klatt/klatt_run.c | cat -A
 
       - name: Build the phonemes harness
         working-directory: native/openevv
