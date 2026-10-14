@@ -7,7 +7,7 @@ diff --git a/src/klatt/klatt_run.c b/src/klatt/klatt_run.c
  #include <string.h>
 +#include <stdio.h>
  #include "eci_synththread.h"
-@@ -619,3 +631,5 @@ x
+@@ -619,3 +620,5 @@ x
      v11 = cell_word(c11);
      v12 = cell_word(c12);
      v13 = c13->w;
