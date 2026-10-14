@@ -2,11 +2,15 @@ dict: English disputed names and stress by ear (Mudb0y 4a64afa)
 
 Ports the dictionary half of Decide English's disputed names and
 stress by ear: 43 pnames entries updated to the ear-decided readings
-(samples in test/samples/enus.words), 11 new entries added verbatim
+(samples in test/samples/enus.words), 12 new entries added
 (celtics, abstracted, conversed, converses, conversing, chlorine,
-digested, digesting, digests, recognizable, retailers). Entries are
+digested, digesting, digests, recognizable, retailers, buffeted
+override). Entries are
 kept (not deleted): our ea_roots rule set differs from upstream's,
 so the dictionary keeps deciding these words deterministically.
+Six words whose actions are shared (annan, biogen, gustafson,
+helena, minot, sentelle) take action `new`, forcing dedicated arms
+so the bake writes their stress instead of leaving it to code.
 
 ?diff --git a/lang/enus/enus.dict b/lang/enus/enus.dict
 index 95fd238..f3a0390 100644
@@ -26,7 +30,7 @@ index 95fd238..f3a0390 100644
    anheuser 255 255 123 says A n h Y z x r
    ankara 255 255 124 says A G k x r x
 -  annan 255 255 125 says a n a n
-+  annan 255 255 125 stress 10 says A n X n
++  annan 255 255 new stress 10 says A n X n
    antares 255 255 126 says A n t a r i z
    antilles 255 255 127 says A n t I l i z
    antipodean 255 255 128 says A n t I p x d i Xx n
@@ -48,16 +52,17 @@ index 95fd238..f3a0390 100644
    bevill 255 255 273 says b E v x l
    bianco 255 255 275 says b i a G k o
 -  biogen 255 255 281 says b Y x J E n
-+  biogen 255 255 281 stress 201 says b Y o J E n
++  biogen 255 255 new stress 201 says b Y o J E n
    biondi 255 255 282 says b i a n d i
    biosystems 255 255 283 says b Y o s I s t x m z
    bideford 255 255 276 says b I d X f x r d
-@@ -1460,7 +1460,7 @@ dictionary pnames1 statement 1 width 0 records sound
+@@ -1460,7 +1460,8 @@ dictionary pnames1 statement 1 width 0 records sound
    budapest 255 255 340 says b u d x p E s t
    budweiser 255 255 341 says b H d w Y z R
    buford 255 255 346 says b y u f R d
 -  buffet 255 255 345 says b H f x t
 +  buffet 255 255 345 stress 01 says b x f e
++  buffeted 255 255 new stress 100 says b H f X F X d
    bulawayo 255 255 348 says b U l x w e o
    bulgaria 255 255 349 says b H l g E r i x
    bullard 255 255 350 says b U l R d
@@ -186,7 +191,7 @@ index 95fd238..f3a0390 100644
    gunnar 255 255 463 says g H n R
    gunnison 255 255 464 says g H n X s x n
 -  gustafson 255 255 465 says g u s t a f s x n
-+  gustafson 255 255 465 stress 1000 says g H s t x f s x n
++  gustafson 255 255 new stress 1000 says g H s t x f s x n
    gutierrez 255 255 466 says g u t y E r E z
    ghanaian 255 255 389 says g x n Y x n
    gladstone 255 255 405 says g l A d s t o n
@@ -204,7 +209,7 @@ index 95fd238..f3a0390 100644
    heuer 255 255 532 says h y u R
    hechinger 255 255 518 says h E k X n J R
 -  helena 255 255 520 says h x l i n x
-+  helena 255 255 520 stress 100 says h E l X n x
++  helena 255 255 new stress 100 says h E l X n x
    hemingway 255 255 521 says h E m X G w e
    henrique 255 255 522 says a n r i k e
    hereford 255 255 523 says h E r Xx f x r d
@@ -291,7 +296,7 @@ index 95fd238..f3a0390 100644
    minitel 255 255 546 says m I n x t E l
    minos 255 255 547 says m i n o s
 -  minot 255 255 548 says m i n o
-+  minot 255 255 548 stress 100 says m I n X t
++  minot 255 255 new stress 100 says m I n X t
    mindanao 255 255 542 says m I n d x n e o
    mindy 255 255 543 says m I n d i
    miramar 255 255 549 says m I r x m a r
@@ -363,7 +368,7 @@ index 95fd238..f3a0390 100644
    senora 255 255 63 says s E n y c r x
    senorita 255 255 64 says s E n y c r i t x
 -  sentelle 255 255 65 says s E n t E l
-+  sentelle 255 255 65 stress 01 says s X n t E l
++  sentelle 255 255 new stress 01 says s X n t E l
    sepulveda 255 255 67 says s E p a l v I F x
    sequoia 255 255 68 says s X k O x
    sera 255 255 69 says s e r a
@@ -389,7 +394,7 @@ index 95fd238..f3a0390 100644
    thereabout 255 255 107 says D e r x b W t
  
  dictionary roots5 statement 1 width 0 records sound
-+  abstracted 255 255 124 stress 210 says A b s t r A k t X d
++  abstracted 255 255 107 stress 210 says A b s t r A k t X d
    alas 255 255 92 says x l A s
    intelligentsia 255 255 94 says X n t E l X J E n t s i x
    ugh 255 255 26 says H g
@@ -397,18 +402,18 @@ index 95fd238..f3a0390 100644
    unreal 255 255 33 says H n r i l
    upholster 255 255 34 says x p o l s t x r
    upholstery 255 255 35 says x p o l s t r i
-+  conversed 255 255 125 stress 1 says k X n v R s t
-+  converses 255 255 126 stress 10 says k X n v R s X z
-+  conversing 255 255 127 stress 10 says k X n v R s I G
-+  chlorine 255 255 128 stress 12 says k l c r i n
-+  digested 255 255 129 stress 210 says d Y J E s t X d
-+  digesting 255 255 130 stress 210 says d Y J E s t I G
-+  digests 255 255 131 stress 21 says d Y J E s t s
++  conversed 255 255 108 stress 1 says k X n v R s t
++  converses 255 255 109 stress 10 says k X n v R s X z
++  conversing 255 255 110 stress 10 says k X n v R s I G
++  chlorine 255 255 111 stress 12 says k l c r i n
++  digested 255 255 112 stress 210 says d Y J E s t X d
++  digesting 255 255 113 stress 210 says d Y J E s t I G
++  digests 255 255 114 stress 21 says d Y J E s t s
    d'etre 255 255 93 says d E t r x
    lugubrious 255 255 95 says l x g u b r i x s
    neurons 255 255 96 says n y U r a@ n s
-+  recognizable 255 255 132 stress 20100 says r E k x g n Y z x b x l
-+  retailers 255 255 133 stress 120 says r i t e l R z
++  recognizable 255 255 115 stress 20100 says r E k x g n Y z x b x l
++  retailers 255 255 116 stress 120 says r i t e l R z
    retreat 255 255 97 says r x t r i t
    septuagenarian 255 255 98 says s E p t y u x J x n E r i x n
    timbre 255 255 4 says t A m b x r
