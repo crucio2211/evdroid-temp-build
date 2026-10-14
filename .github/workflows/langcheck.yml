@@ -45,7 +45,6 @@ jobs:
         working-directory: native/openevv
         run: |
           sed -n '600,630p' src/klatt/klatt_run.c
-          done
 
       - name: Build the phonemes harness
         working-directory: native/openevv
