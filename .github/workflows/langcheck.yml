@@ -48,7 +48,7 @@ jobs:
 
       - name: Build the phonemes harness
         working-directory: native/openevv
-        run: make phonemes-bin LANGS="${{ inputs.lang }}" RULES="bytecode" -j"$(nproc)"
+        run: make phonemes-bin LANGS="${{ inputs.lang }}" RULES="bytecode" OPT="-O2 -g" -j"$(nproc)"
 
       - name: Say its cases
         working-directory: native/openevv
@@ -61,7 +61,7 @@ jobs:
       - name: Peak loudness of one sentence
         working-directory: native/openevv
         run: |
-          make probe LANGS="${{ inputs.lang }}" RULES="bytecode" -j"$(nproc)"
+          make probe LANGS="${{ inputs.lang }}" RULES="bytecode" OPT="-O2 -g" -j"$(nproc)"
           tag="$(basename "${{ inputs.lang }}")"
           bin="./build/probe-$tag"
           [ -x "$bin" ] || bin="./build/probe"
