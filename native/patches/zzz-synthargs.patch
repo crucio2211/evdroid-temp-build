@@ -1,0 +1,11 @@
+engine: TEMP-ONLY synthargs probe
+ 
+diff --git a/src/klatt/klatt_run.c b/src/klatt/klatt_run.c
+--- a/src/klatt/klatt_run.c
++++ b/src/klatt/klatt_run.c
+@@ -619,3 +619,5 @@ x
+     v11 = cell_word(c11);
+     v12 = cell_word(c12);
+     v13 = c13->w;
++    fprintf(stderr, "synthargs: v=%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d pads=%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n", v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, (int)c2->pad, (int)c3->pad, (int)c4->pad, (int)c5->pad, (int)c6->pad, (int)c7->pad, (int)c8->pad, (int)c9->pad, (int)c10->pad, (int)c11->pad, (int)c12->pad, (int)c13->pad);
++    fflush(stderr);
