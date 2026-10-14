@@ -1,17 +1,36 @@
 engine: duration sharing, fixed math and advance entries (Mudb0y runtime)
 
-Ports the remaining C entries the lifted languages call: advanc
-(scan advance), vdur_ass61/dur_ass61 with half_rounds_down (6.1's
-double-exact duration sharing), the fixed_log/pow/exp/exp2 math in
-new src/delta/delta_fixed.c (picked up by the Makefile wildcard),
-plus delta.h declarations. No behaviour change alone: nothing in
-this tree calls them yet; they exist so lifted rules resolve.
+Ports the C entries the lifted languages call: advanc (scan advance),
+move_f (double move as fixed), npush_f (fixed push), vdur_ass61 and
+dur_ass61 with half_rounds_down (6.1's double-exact duration
+sharing), the fixed_log/pow/exp/exp2 math in new
+src/delta/delta_fixed.c (picked up by the Makefile wildcard), plus
+delta.h declarations. No behaviour change alone: nothing in this
+tree calls them yet; they exist so lifted rules resolve.
 
 diff --git a/src/delta/delta.c b/src/delta/delta.c
-index cf9f0d8..3995fa8 100644
+index cf9f0d8..5e57139 100644
 --- a/src/delta/delta.c
 +++ b/src/delta/delta.c
-@@ -2722,6 +2722,11 @@ int advance_tok(delta_state *d)
+@@ -2176,6 +2176,17 @@ void npush_i(delta_state *d, int32_t x)
+     vnspush(d, &v);
+ }
+ 
++/* 6.1's push of a double, here a fixed value. */
++void npush_f(delta_state *d, int32_t x)
++{
++    delta_operand v;
++
++    v.ptr = &x;
++    v.kind = DK_FIXED;
++    v.flag = 0;
++    vnspush(d, &v);
++}
++
+ void npush_s(delta_state *d, int32_t x)
+ {
+     delta_operand v;
+@@ -2722,6 +2733,11 @@ int advance_tok(delta_state *d)
      return vscanadvOverToken(d, 1) ? 0 : 1;
  }
  
@@ -23,7 +42,54 @@ index cf9f0d8..3995fa8 100644
  /* Restart a forall from a given value: assign the source to the loop
     variable, note what is being iterated, and drop the backtracking the
     previous pass left. */
-@@ -8155,6 +8160,172 @@ int dur_ass(delta_state *d, int8_t f, delta_loc *field, uint8_t mode)
+@@ -5803,6 +5819,46 @@ void move_lng(delta_state *d, delta_loc *loc, int32_t value)
+     reset_field(loc);
+ }
+ 
++/* 6.1's move of a double into a variable or a field, here a fixed value: a
++   whole-number variable takes it truncated, as cvttsd2si truncates, and a
++   field takes it through vassign, which converts by the field's kind. */
++void move_f(delta_state *d, delta_loc *loc, int32_t value)
++{
++    delta_operand a;
++    delta_operand b;
++
++    if (EVV_AT(delta_vars *, d->vars)->testing)
++        save_var(d, loc);
++
++    switch (loc->kind) {
++    case DK_SYNC:
++    case DK_LONG:
++        loc->value = delta_fixed_int(value);
++        return;
++    case DK_FIXED:
++        loc->value = value;
++        return;
++    case DK_SHORT2:
++        loc->field = (int16_t)delta_fixed_int(value);
++        return;
++    default:
++        break;
++    }
++
++    if (loc->kind < 0) {
++        forceErrorBacktrack(d);
++        return;
++    }
++
++    a.kind = DK_FIXED;
++    a.ptr = &value;
++    a.flag = 0;
++
++    vinitloc_new(d, &b, loc);
++    vassign(d, &b, &a);
++    reset_field(loc);
++}
++
+ void move_i(delta_state *d, delta_loc *loc, int16_t value)
+ {
+     delta_operand a;
+@@ -8155,6 +8211,172 @@ int dur_ass(delta_state *d, int8_t f, delta_loc *field, uint8_t mode)
      return 0;
  }
  
@@ -197,10 +263,18 @@ index cf9f0d8..3995fa8 100644
     and put the answer in the variable the rule names. A run with no answer
     is reported as no time at all rather than passed on. Both registers have
 diff --git a/src/delta/delta.h b/src/delta/delta.h
-index 75d58ee..18792f3 100644
+index 75d58ee..2cb7e49 100644
 --- a/src/delta/delta.h
 +++ b/src/delta/delta.h
-@@ -941,6 +941,14 @@ int  ventproc(delta_state *d, delta_actrec *rec, uint8_t *index,
+@@ -768,6 +768,7 @@ void forceErrorBacktrack(delta_state *d);
+ void push_ptr_init(delta_state *d, delta_loc *p);
+ void set_saved_ptrs(delta_state *d, int32_t was, int32_t now);
+ void npush_i(delta_state *d, int32_t x);
++void npush_f(delta_state *d, int32_t x);
+ void npush_s(delta_state *d, int32_t x);
+ void vscaninit(delta_state *d);
+ delta_node *vmovel(delta_state *d, delta_node *t, uint8_t f);
+@@ -941,6 +942,15 @@ int  ventproc(delta_state *d, delta_actrec *rec, uint8_t *index,
  int  vretproc(delta_state *d, int32_t tag);
  int  succeed(delta_state *d);
  void move_i(delta_state *d, delta_loc *loc, int16_t value);
@@ -212,10 +286,11 @@ index 75d58ee..18792f3 100644
 +int32_t fixed_exp2(delta_state *d, int32_t x);
 +int32_t fixed_log(delta_state *d, int32_t x);
 +int32_t fixed_pow(delta_state *d, int32_t x, int32_t y);
++void move_f(delta_state *d, delta_loc *loc, int32_t value);
  void move_lng(delta_state *d, delta_loc *loc, int32_t value);
  void pause(delta_state *d);
  int  actd_goto(delta_state *d);
-@@ -1110,6 +1118,7 @@ void    generate(delta_state *d, int32_t lf);
+@@ -1110,6 +1120,7 @@ void    generate(delta_state *d, int32_t lf);
  int  vdur_ass(delta_state *d, delta_tpos *a, delta_tpos *b, int8_t f,
                int32_t total);
  int  dur_ass(delta_state *d, int8_t f, delta_loc *field, uint8_t mode);
@@ -375,37 +450,3 @@ index 0000000..7588f73
 +    yq = ((int64_t)y << Q) / DELTA_FIXED_ONE;
 +    return exp_to_fixed(((ln_fixed(x) >> 4) * (yq >> 4)) >> 22);
 +}
-diff --git a/src/delta/delta.c b/src/delta/delta.c
-index cf9f0d8..3876b60 100644
---- a/src/delta/delta.c
-+++ b/src/delta/delta.c
-@@ -2176,6 +2176,17 @@ void npush_i(delta_state *d, int32_t x)
-     vnspush(d, &v);
- }
- 
-+/* 6.1's push of a double, here a fixed value. */
-+void npush_f(delta_state *d, int32_t x)
-+{
-+    delta_operand v;
-+
-+    v.ptr = &x;
-+    v.kind = DK_FIXED;
-+    v.flag = 0;
-+    vnspush(d, &v);
-+}
-+
- void npush_s(delta_state *d, int32_t x)
- {
-     delta_operand v;
-diff --git a/src/delta/delta.h b/src/delta/delta.h
-index 75d58ee..86860d0 100644
---- a/src/delta/delta.h
-+++ b/src/delta/delta.h
-@@ -768,6 +768,7 @@ void forceErrorBacktrack(delta_state *d);
- void push_ptr_init(delta_state *d, delta_loc *p);
- void set_saved_ptrs(delta_state *d, int32_t was, int32_t now);
- void npush_i(delta_state *d, int32_t x);
-+void npush_f(delta_state *d, int32_t x);
- void npush_s(delta_state *d, int32_t x);
- void vscaninit(delta_state *d);
- delta_node *vmovel(delta_state *d, delta_node *t, uint8_t f);
