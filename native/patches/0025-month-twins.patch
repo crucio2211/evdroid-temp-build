@@ -1,0 +1,65 @@
+enus authored month case-twins for the 6.1 number rules
+
+The twelve month strings the number rules name in the other case
+(month_February vs month_february and friends) live in authored data
+under their own names. Appends them after the 116-string block with
+our offsets (552-631) plus symbols entries. Applies after 0023.
+
+diff --git a/lang/enus/delta_authored_enus.c b/lang/enus/delta_authored_enus.c
+index 1fe7b93..10fac59 100644
+--- a/lang/enus/delta_authored_enus.c
++++ b/lang/enus/delta_authored_enus.c
+@@ -394,6 +394,30 @@ uint8_t enus_evv_authored_data[] = {
+     46,2,22,26,
+     /* month_september, 9 bytes at 543 */
+     25,2,22,26,2,20,11,2,24,
++    /* month_February, 8 bytes at 552 */
++    35,2,11,24,5,1,24,30,
++    /* month_November, 8 bytes at 560 */
++    42,4,27,2,20,11,2,24,
++    /* month_September, 9 bytes at 568 */
++    46,2,22,26,2,20,11,2,24,
++    /* month_april, 5 bytes at 577 */
++    1,22,24,3,19,
++    /* month_august, 6 bytes at 582 */
++    1,5,15,5,25,26,
++    /* month_december, 8 bytes at 588 */
++    13,2,12,2,20,11,2,24,
++    /* month_january, 7 bytes at 596 */
++    17,1,21,5,1,24,30,
++    /* month_july, 4 bytes at 603 */
++    17,5,19,30,
++    /* month_june, 4 bytes at 607 */
++    17,5,21,2,
++    /* month_march, 5 bytes at 611 */
++    20,1,24,12,16,
++    /* month_november, 8 bytes at 616 */
++    21,4,27,2,20,11,2,24,
++    /* month_october, 7 bytes at 624 */
++    4,12,26,4,11,2,24,
+ };
+ 
+ const delta_store enus_delta_authored_store[] = {
+diff --git a/lang/enus/rules/symbols b/lang/enus/rules/symbols
+index 4cdd837..d28c492 100644
+--- a/lang/enus/rules/symbols
++++ b/lang/enus/rules/symbols
+@@ -6994,6 +6994,18 @@ at * month_October enus_evv_authored_data 529
+ at * month_Sep enus_evv_authored_data 536
+ at * month_Sept enus_evv_authored_data 539
+ at * month_september enus_evv_authored_data 543
++at * month_February enus_evv_authored_data 552
++at * month_November enus_evv_authored_data 560
++at * month_September enus_evv_authored_data 568
++at * month_april enus_evv_authored_data 577
++at * month_august enus_evv_authored_data 582
++at * month_december enus_evv_authored_data 588
++at * month_january enus_evv_authored_data 596
++at * month_july enus_evv_authored_data 603
++at * month_june enus_evv_authored_data 607
++at * month_march enus_evv_authored_data 611
++at * month_november enus_evv_authored_data 616
++at * month_october enus_evv_authored_data 624
+ at ea_pname.obj string_2722 enus_evv_glob_data_3 2056
+ at ea_pname.obj string_2723 enus_evv_ea_pname_data_3 20640
+ at ea_pname.obj string_2724 enus_evv_ea_pname_data_3 20648
