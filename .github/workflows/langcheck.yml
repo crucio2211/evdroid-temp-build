@@ -37,7 +37,7 @@ jobs:
         run: |
           for patch in "$GITHUB_WORKSPACE"/native/patches/*.patch; do
             [ -e "$patch" ] || continue
-            git -C native/openevv apply --whitespace=nowarn "$patch"
+            git -C native/openevv apply --whitespace=nowarn -v "$patch"
             echo "applied $(basename "$patch")"
           done
 
