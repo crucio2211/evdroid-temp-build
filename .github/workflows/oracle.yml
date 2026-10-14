@@ -44,6 +44,10 @@ jobs:
             echo "applied $(basename "$patch")"
           done
 
+      - name: Build the phonemes harness
+        working-directory: native/openevv
+        run: make phonemes-bin LANGS="${{ inputs.lang }}" RULES="bytecode" -j"$(nproc)"
+
       - name: Bake dictionaries from text (temp-only)
         working-directory: native/openevv
         run: |
@@ -57,7 +61,7 @@ jobs:
             git -C "$GITHUB_WORKSPACE" push origin HEAD:dict-bake --force
           fi
 
-      - name: Build the phonemes harness
+      - name: Rebuild the harness with baked dictionaries (temp-only)
         working-directory: native/openevv
         run: make phonemes-bin LANGS="${{ inputs.lang }}" RULES="bytecode" -j"$(nproc)"
 
