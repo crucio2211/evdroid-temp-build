@@ -1,0 +1,18 @@
+dict: override encourage (ugly IBM rule reading)
+
+The word is not in the dictionary; the rules read it IBM's way.
+Teach it outright in roots1b with action new (minted on bake):
+en-COUR-age as E n k R X J, stress 010.
+
+diff --git a/lang/enus/enus.dict b/lang/enus/enus.dict
+index 95fd238..fcbb67a 100644
+--- a/lang/enus/enus.dict
++++ b/lang/enus/enus.dict
+@@ -4259,6 +4259,7 @@ dictionary roots1b statement 1 width 0 records sound
+   enumerable 255 255 90 says X n u m x r x b x l
+   enumere 255 255 89 says X n u m x r
+   encore 255 255 76 says a@ G k c r
++  encourage 255 255 new stress 010 says E n k R X J
+   enclave 255 255 75 says a n k l e v
+   endow 255 255 77 says X n d W
+   endtable 255 255 81 says E n d t e b x l
