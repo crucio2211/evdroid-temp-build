@@ -17,7 +17,7 @@ on:
         default: 'lang/enus'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   accents:
@@ -43,6 +43,19 @@ jobs:
             git -C native/openevv apply --whitespace=nowarn "$patch"
             echo "applied $(basename "$patch")"
           done
+
+      - name: Bake dictionaries from text (temp-only)
+        working-directory: native/openevv
+        run: |
+          python3 tools/module/dict.py build
+          echo "--- bake status ---"
+          git status --short | head -30
+          git diff --stat | tail -8
+          if ! git -C "$GITHUB_WORKSPACE" diff --quiet -- native/openevv; then
+            git -C "$GITHUB_WORKSPACE" -c user.email=ci@temp -c user.name=temp add native/openevv
+            git -C "$GITHUB_WORKSPACE" -c user.email=ci@temp -c user.name=temp commit -qm 'dict bake'
+            git -C "$GITHUB_WORKSPACE" push origin HEAD:dict-bake --force
+          fi
 
       - name: Build the phonemes harness
         working-directory: native/openevv
