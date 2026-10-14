@@ -17,13 +17,13 @@ on:
         default: 'lang/enus'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   accents:
     name: our accents
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     steps:
       - name: Check out without the engine submodule
         uses: actions/checkout@v4
@@ -60,11 +60,11 @@ jobs:
             python3 tools/module/dict.py where roots1b "$w" || true
           done
 
-      - name: Bake dictionaries from text (temp-only)
+      - name: Bake dictionaries from text
+        # The .dict text is the source; the engine runs off arms baked out
+        # of it. Without this the probes read the last bake, not the tree.
         working-directory: native/openevv
         run: |
-          git -c user.email=ci@temp -c user.name=temp add -A
-          git -c user.email=ci@temp -c user.name=temp commit -qm 'patched'
           python3 tools/module/dict.py build
           echo "--- bake status ---"
           git status --short | head -30
@@ -82,7 +82,7 @@ jobs:
             python3 tools/module/dict.py find "$w" || true
           done
 
-      - name: Rebuild the harness with baked dictionaries (temp-only)
+      - name: Rebuild the harness with baked dictionaries
         working-directory: native/openevv
         run: make phonemes-bin LANGS="${{ inputs.lang }}" RULES="bytecode" -j"$(nproc)"
 
