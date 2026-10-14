@@ -29,11 +29,10 @@ env:
   # arm64 for phones, 32-bit ARM for older phones and watches. x86_64 is
   # emulator-only and nobody installs there, so it does not ship.
   EVVDROID_ABIS: arm64-v8a,armeabi-v7a
-  # Every language the engine ships except Korean and Chinese, which were
-  # never in the SDK it is transcribed from. Finnish and Brazilian
-  # Portuguese ride along lifted whole from ETI's 6.1. Japanese travels as
+  # Every language the engine ships except Korean, Chinese and Portuguese,
+  # which were never in the SDK it is transcribed from. Japanese travels as
   # UTF-16 through a path of its own; the rest travel as bytes.
-  EVVDROID_LANGS: lang/enus lang/engb lang/dede lang/eses lang/esus lang/frfr lang/frca lang/itit lang/plpl lang/jajp lang/fifi lang/ptbr
+  EVVDROID_LANGS: lang/enus lang/engb lang/dede lang/eses lang/esus lang/frfr lang/frca lang/itit lang/plpl lang/jajp
 
 jobs:
   build:
@@ -48,11 +47,19 @@ jobs:
         with:
           submodules: false
 
-      - name: Make the in-tree engine a repo for patch application
+      - name: Check out the private engine fork
+        env:
+          OPENVV16K_DEPLOY_KEY: ${{ secrets.OPENVV16K_DEPLOY_KEY }}
         run: |
-          git -C native/openevv init -q
-          git -C native/openevv -c user.email=ci@temp -c user.name=temp add -A
-          git -C native/openevv -c user.email=ci@temp -c user.name=temp commit -qm base
+          set -e
+          [ -n "$OPENVV16K_DEPLOY_KEY" ] || { echo "OPENVV16K_DEPLOY_KEY is empty" >&2; exit 1; }
+          mkdir -p ~/.ssh
+          printf '%s\n' "$OPENVV16K_DEPLOY_KEY" > ~/.ssh/openevv16k
+          chmod 600 ~/.ssh/openevv16k
+          git config --global url."git@github.com:".insteadOf "https://github.com/"
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/openevv16k -o StrictHostKeyChecking=no -o IdentitiesOnly=yes"
+          git submodule update --init --recursive
+          git -C native/openevv log --oneline -1
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
