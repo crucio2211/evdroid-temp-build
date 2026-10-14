@@ -34,12 +34,15 @@ class EvvTtsService : TextToSpeechService() {
 	private var loadedDictionaryLangs: Map<Int, Int> = emptyMap()
 	private var loadedEngine: EvvEngine? = null
 
-	/** Picked files as read: engine language to lowercase word, key as
-	 *  written and what to say. Files for one language read as one map,
-	 *  so a word is taught to the engine that will speak it. Taught words
-	 *  live on the engine instance, so [taughtWords] starts over with
-	 *  every new one. Shared with the background teacher below. */
-	private var wordMaps: Map<Int, Map<String, Pair<String, String>>> = emptyMap()
+	/** Picked files as read: engine language to lowercase word, to every
+	 *  entry written under it, with the volume each was picked for and
+	 *  the key as written and what to say. Files for one language read
+	 *  as one map, so a word is taught to the engine that will speak
+	 *  it. Taught words live on the engine instance, so [taughtWords]
+	 *  starts over with every new one. Shared with the background
+	 *  teacher below. */
+	private data class DictEntry(val volume: Int, val key: String, val say: String)
+	private var wordMaps: Map<Int, Map<String, List<DictEntry>>> = emptyMap()
 	private val taughtWords = java.util.concurrent.ConcurrentHashMap.newKeySet<Pair<Int, String>>()
 
 	/** Words as the engine meets them: letters and digits carrying their
@@ -228,7 +231,7 @@ class EvvTtsService : TextToSpeechService() {
 		if (want == loadedDictionaries && langs == loadedDictionaryLangs && target === loadedEngine) return
 		target.forgetDictionaries()
 		if (want != loadedDictionaries || langs != loadedDictionaryLangs) {
-			val read = LinkedHashMap<Int, LinkedHashMap<String, Pair<String, String>>>()
+			val read = LinkedHashMap<Int, LinkedHashMap<String, MutableList<DictEntry>>>()
 			for ((volume, path) in want) {
 				try {
 					val file = java.io.File(path)
@@ -236,7 +239,10 @@ class EvvTtsService : TextToSpeechService() {
 					val entries = Dictionaries.parse(file)
 					Log.i(TAG, "volume $volume: ${entries.size} entries from ${file.name}")
 					val into = read.getOrPut(langs[volume] ?: target.language) { LinkedHashMap() }
-					into.putAll(entries)
+					for ((lower, entry) in entries) {
+						into.getOrPut(lower) { mutableListOf() }
+							.add(DictEntry(volume, entry.first, entry.second))
+					}
 				} catch (failed: Exception) {
 					// One bad volume must not take the utterance, or every
 					// utterance after it, down with it.
@@ -252,26 +258,43 @@ class EvvTtsService : TextToSpeechService() {
 		teachAllWords(target)
 	}
 
+	/** Volumes one entry goes to: its own, and main too for a root
+	 *  word, so a built-in main never shouts over a taught root. An
+	 *  abbreviation stays in abbreviations: its key carries periods
+	 *  the other volumes must never learn. */
+	private fun teachVolumes(volume: Int): List<Int> =
+		if (volume == Eci.DICT_ROOT) listOf(Eci.DICT_MAIN, Eci.DICT_ROOT) else listOf(volume)
+
+	/** How many engine teachings the up-front pass does at most. Big
+	 *  files teach the rest as spoken through [teachUnknownWords],
+	 *  which also matches a closing period, so capping never strands
+	 *  an abbreviation the eager pass did not reach. */
+	private val MAX_EAGER_TEACH = 5000
+
 	/** Every registered word into the engine up front, off the synthesis
-	 *  thread. Stops early if the engine moved on underneath it; the lazy
-	 *  path teaches whatever is still missing when it is spoken. */
+	 *  thread, each to the volumes it belongs in. Stops early if the
+	 *  engine moved on underneath it or the eager bound is reached; the
+	 *  lazy path teaches whatever is still missing when it is spoken. */
 	private fun teachAllWords(target: EvvEngine) {
 		val entries = wordMaps[target.language] ?: return
-		val mine = entries.values.toList()
+		val mine = entries.values.flatten()
 		Thread({
+			var calls = 0
 			for (entry in mine) {
 				if (engine !== target) return@Thread
-				for (volume in Eci.DICT_VOLUMES) {
-					val key = volume to entry.first
+				if (calls >= MAX_EAGER_TEACH) return@Thread
+				for (volume in teachVolumes(entry.volume)) {
+					val key = volume to entry.key
 					if (key in taughtWords) continue
 					try {
-						val rc = target.teachWord(volume, entry.first, entry.second)
+						val rc = target.teachWord(volume, entry.key, entry.say)
 						taughtWords.add(key)
-						if (rc != 0) Log.e(TAG, "volume $volume refused ${entry.first}")
+						if (rc != 0) Log.e(TAG, "volume $volume refused ${entry.key}")
 					} catch (failed: Exception) {
-						Log.e(TAG, "volume $volume would not take ${entry.first}", failed)
+						Log.e(TAG, "volume $volume would not take ${entry.key}", failed)
 						taughtWords.add(key)
 					}
+					calls++
 				}
 			}
 		}, "evvdroid-teach").apply { isDaemon = true }.start()
@@ -286,23 +309,25 @@ class EvvTtsService : TextToSpeechService() {
 		val entries = wordMaps[target.language] ?: return
 		for (raw in WORD.findAll(text)) {
 			val word = raw.value.lowercase()
-			val entry = entries[word] ?: continue
-			// Every volume takes it, so a built-in main never shouts
-			// over a taught root: main, root and abbreviations alike.
-			for (volume in Eci.DICT_VOLUMES) {
-				val key = volume to entry.first
-				if (key in taughtWords) continue
-				try {
-					if (target.teachWord(volume, entry.first, entry.second) == 0) {
+			// The word finder leaves a closing period behind, so an
+			// abbreviation matches twice: as written and dotted.
+			val hits = entries[word] ?: entries[word + "."] ?: continue
+			for (entry in hits) {
+				for (volume in teachVolumes(entry.volume)) {
+					val key = volume to entry.key
+					if (key in taughtWords) continue
+					try {
+						if (target.teachWord(volume, entry.key, entry.say) == 0) {
+							taughtWords.add(key)
+						} else {
+							// Refused once, refused always: do not ask again.
+							taughtWords.add(key)
+							Log.e(TAG, "volume $volume refused ${entry.key}")
+						}
+					} catch (failed: Exception) {
+						Log.e(TAG, "volume $volume would not take ${entry.key}", failed)
 						taughtWords.add(key)
-					} else {
-						// Refused once, refused always: do not ask again.
-						taughtWords.add(key)
-						Log.e(TAG, "volume $volume refused ${entry.first}")
 					}
-				} catch (failed: Exception) {
-					Log.e(TAG, "volume $volume would not take ${entry.first}", failed)
-					taughtWords.add(key)
 				}
 			}
 		}
