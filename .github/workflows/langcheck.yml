@@ -68,6 +68,7 @@ jobs:
           printf '%s\n' "${{ inputs.sentence }}" > /tmp/loud.txt
           export DELTA_RULE_TRACE=0
           export MALLOC_CHECK_=3
+          (gdb --version 2>/dev/null || sudo apt-get install -y gdb >/dev/null 2>&1)
           EVV_HETERO=on gdb -batch -ex run -ex "thread apply all bt" -ex "print $_siginfo" -ex "info registers rax rbx rip rsp" --args "$bin" @/tmp/loud.txt /tmp/loud.wav 2>&1 | tail -75
           python3 -c "
           import wave, array
