@@ -30,19 +30,11 @@ jobs:
         with:
           submodules: false
 
-      - name: Check out the private engine fork
-        env:
-          OPENVV16K_DEPLOY_KEY: ${{ secrets.OPENVV16K_DEPLOY_KEY }}
+      - name: Make the in-tree engine a repo for patch application
         run: |
-          set -e
-          [ -n "$OPENVV16K_DEPLOY_KEY" ] || { echo "OPENVV16K_DEPLOY_KEY is empty" >&2; exit 1; }
-          mkdir -p ~/.ssh
-          printf '%s\n' "$OPENVV16K_DEPLOY_KEY" > ~/.ssh/openevv16k
-          chmod 600 ~/.ssh/openevv16k
-          git config --global url."git@github.com:".insteadOf "https://github.com/"
-          export GIT_SSH_COMMAND="ssh -i ~/.ssh/openevv16k -o StrictHostKeyChecking=no -o IdentitiesOnly=yes"
-          git submodule update --init --recursive
-          git -C native/openevv log --oneline -1
+          git -C native/openevv init -q
+          git -C native/openevv -c user.email=ci@temp -c user.name=temp add -A
+          git -C native/openevv -c user.email=ci@temp -c user.name=temp commit -qm base
 
       - name: Lay our patches on
         run: |
