@@ -86,6 +86,16 @@ jobs:
         working-directory: native/openevv
         run: make phonemes-bin LANGS="${{ inputs.lang }}" RULES="bytecode" -j"$(nproc)"
 
+      - name: Bisect hanging input (temp-only)
+        working-directory: native/openevv
+        run: |
+          bin="./build/phonemes-enus"
+          [ -x "$bin" ] || bin="./build/phonemes"
+          for case in 'hey!' 'hey.' 'encourage' 'celtics' 'US$5.50 and fifty cents' 'EUR 20.50' 'Call 555-1234 now' 'September thirtieth' '2026-10-11' 'Call me :)' 'vis-a-vis' 'buffeted'; do
+            printf '%s\n' "$case" > /tmp/bisect.txt
+            if timeout 60 "$bin" /tmp/bisect.txt > /tmp/bisect.out 2>&1; then echo "OK: $case"; else echo "HUNG/FAIL($?): $case"; fi
+          done
+
       - name: Say what our engine hears
         working-directory: native/openevv
         # With the hetero filter on, exactly like the app runs it: forced
