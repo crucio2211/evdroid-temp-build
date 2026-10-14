@@ -1,0 +1,62 @@
+name: Windows 16kHz DLLs (all languages)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout tree (patches already migrated in)
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq mingw-w64 python3 zip
+
+      - name: Build eci.dll 64-bit (RULES=c, all languages)
+        run: |
+          set -eux
+          LANGS="lang/enus lang/engb lang/eses lang/esus lang/dede lang/frfr lang/frca lang/itit lang/plpl lang/jajp"
+          make build/eci.dll RULES=c LANGS="$LANGS" -j2
+          ls -la build/eci.dll
+
+      - name: Build eci32.dll 32-bit (RULES=c, all languages)
+        run: |
+          set -eux
+          LANGS="lang/enus lang/engb lang/eses lang/esus lang/dede lang/frfr lang/frca lang/itit lang/plpl lang/jajp"
+          make build/eci32.dll RULES=c LANGS="$LANGS" -j2
+          ls -la build/eci32.dll
+
+      - name: Zip DLLs
+        run: |
+          mkdir -p out
+          cp build/eci.dll build/eci32.dll out/
+          cd out && zip -9 openevv-16k-dlls.zip eci.dll eci32.dll
+          ls -la
+
+      - name: Upload as GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: windows-16k-${{ github.run_number }}
+          name: OpenEVV 16kHz custom (run ${{ github.run_number }})
+          body: |
+            Custom 16kHz RULES=c build, all 10 languages (incl. Japanese):
+            - wideband klatt path (pole_filter_wide)
+            - hetero: quality, persona, address (+ plurals)
+            - punct: bare marks removed from eng_char_name
+            - poor/poors phones fixed
+            - 0.20.0 driver set (boost, dicts, IBMTTS fixes, PIECE_CAP=20)
+            Files: eci.dll (64-bit), eci32.dll (32-bit)
+          files: out/openevv-16k-dlls.zip
+          draft: false
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

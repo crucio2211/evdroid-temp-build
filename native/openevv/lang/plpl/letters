@@ -1,0 +1,257 @@
+# Polish letter-to-sound.
+#
+# One block a letter and its arms in order, the first that matches winning.
+# The last arm of a block is the bare letter: what it says when nothing else
+# applies. `before' is what must follow without being swallowed; an arm whose
+# run is longer than its letter swallows the rest, which is how sz, cz, rz,
+# dz, dż, dź and ch are one sound.
+#
+# A consonant before an i is the soft one, and the i is a softener rather than
+# a vowel when a vowel follows it: Kasia is two syllables and dziś is one. So
+# si before a vowel swallows the i, and s before an i leaves it to be spoken.
+#
+# A voiced consonant is voiceless before a voiceless one and at the end of a
+# word -- raz is ras, babka is bapka, wtorek is ftorek -- and `voiceless'
+# below counts both. w and rz also lose their voice after a voiceless one,
+# which no other letter does: kwiat is kfiat and przy is pszy.
+#
+# Except that the end of a word is not voiceless when the next word begins
+# with a voiced obstruent, which is `unless voiced follows': pod domem keeps
+# its d. And there a voiceless one takes the voice, `before voiced word':
+# jak dobrze is jag dobrze, kot biega is kod biega. w and rz do neither,
+# being voiced without making what stands before them so -- brat wie keeps
+# its t -- and so are not in `voiced'. A cluster at the end of a word takes
+# the voice whole, so its arms swallow the rest of it: jest dobrze is jezd,
+# and sześć złotych is szeźdź.
+#
+# Inside a word the same holds without the space, `before voiced': prośba
+# is proźba, jakby jagby, liczba lidżba. A voiced letter counts only where it
+# keeps its own voice, which is `unless voiceless follows' on its class, so
+# liczb at the end of a word keeps its cz. And a voiced cluster loses its
+# voice whole as well: gwiazd is gwiast, mózg músk.
+#
+# The phones are the engine's own, and several are named for the Italian
+# sounds they took over, so the lines above the letters let an arm name them
+# by Polish spelling instead. The vowels keep the engine's names, since e, o,
+# y and c are phones already: e says E, the open ɛ; o says c, the open ɔ;
+# y says e, the close-mid e Polish's ɨ took over; j says y, which is the
+# engine's name for the glide; and ł says w, the other glide.
+#
+# f, p, t, v, k, x, a, l and m are still Italian's, copied from
+# lang/itit/letters, and say what Italian's rules say, but for the arms
+# above them that are Polish's: t before rz, and a voiceless final taking
+# its voice from the next word.
+
+rules in it_phone.obj named apply_pol_%s_rules
+a piece runs from 864 to 872
+a word runs from 704 to 712
+
+voiceless means p t k f s c h ś ć sz cz and the end of the word unless voiced follows
+voiced means b d g z ź ż unless voiceless follows
+ą ć ę ł ń ś ź ż come through q
+
+phone sz is L
+phone ż is R
+phone ś is S
+phone ź is Z
+phone ć is C
+phone dź is J
+phone dz is D
+phone ń is N
+phone ts is T
+phone ch is A
+phone ą is x
+phone ę is o
+
+letter s
+  szcz before voiced word  says ż d ż  # deszcz go
+  sz before voiced word  says ż     # nasz dom
+  sz before voiced     says ż
+  sz                   says sz      # szafa
+  si before vowel      says ś       # Kasia
+  s before i           says ś       # siła
+  st before voiced word  says z d   # jest dobrze
+  st before voiced     says z d     # natomiastbym
+  s before voiced word says z       # las daleko
+  s before voiced      says z
+  s                    says s
+
+letter c
+  cz before voiced word  says d ż   # klucz do
+  cz before voiced     says d ż     # liczba
+  cz                   says t sz    # czas
+  ch                   says ch      # chleb
+  ci before vowel      says ć       # ciasto
+  c before i           says ć       # cisza
+  c before voiced word says dz      # noc była
+  c before voiced      says dz
+  c                    says ts      # cena
+
+# rz is the voiced retroflex, not an r and a z. The words where it is one --
+# marznie, and the others where the two letters meet across a seam in the
+# word -- are the dictionary's to say.
+letter r
+  rz after voiceless   says sz      # przy, trzy, krzesło
+  rz before voiceless  says sz      # tchórz
+  rz                   says ż       # rzeka
+  r                    says r
+
+# dzi is asked about first, since the dz below would swallow it.
+letter d
+  dzi before vowel     says dź      # dziecko
+  dz before i          says dź      # dzik
+  dz before voiceless  says ts
+  dz                   says dz      # dzwon
+  dż before voiceless  says t sz
+  dż                   says d ż     # dżem
+  dź before voiceless  says ć
+  dź                   says dź
+  d before voiceless   says t       # kod
+  d before rz          says d       marked tenseness tense   # drzewo
+  d                    says d
+
+letter z
+  zau at word start    says z a u   # zaufanie, zauważyć
+  zd before voiceless  says s t     # gwiazd, gwiazdka
+  zg before voiceless  says s k     # mózg
+  zi before vowel      says ź       # ziarno
+  z before i           says ź       # zima
+  z before voiceless   says s       # raz
+  z                    says z
+
+letter g
+  g before voiceless   says k       # róg
+  g                    says g
+
+# The velar nasal before a k or a g is the phonology's, not the letter's:
+# bank has it without being asked.
+letter n
+  nau at word start    says n a u   # nauka, nauczyciel
+  nieu at word start   says ń E u   # nieufny, nieudany
+  ni before vowel      says ń       # konie
+  n before i           says ń       # nikt
+  n                    says n
+
+letter e
+  e                    says E
+
+letter o
+  ó                    says u       # mój
+  o                    says c
+
+letter y
+  y                    says e       # być
+
+letter j
+  j                    says y       # mój
+
+letter b
+  b before voiceless   says p       # chleb
+  b                    says b
+
+letter w
+  w after voiceless    says f       # kwiat, twój, świat, czwartek
+  w before voiceless   says f       # rów, wtorek
+  w                    says v
+
+letter h
+  h                    says ch      # herbata
+
+letter ą
+  ą                    says ą
+
+letter ę
+  ę                    says ę
+
+letter ł
+  ł                    says w
+
+letter ń
+  ń                    says ń
+
+letter ś
+  ść before voiced word  says ź dź  # sześć złotych
+  ś before voiced word says ź       # coś dobrego
+  ś before voiced      says ź       # prośba
+  ś                    says ś
+
+letter ć
+  ć before voiced word says dź      # być dobrym
+  ć before voiced      says dź
+  ć                    says ć
+
+letter ź
+  źdź before voiceless  says ś ć    # gwóźdź
+  ź before voiceless   says ś
+  ź                    says ź
+
+letter ż
+  ż before voiceless   says sz      # mąż
+  ż                    says ż
+
+letter f
+  f before voiced word  says v     # szef banku
+  f before voiced       says v
+  ff   says f f   marked geminate yes
+  f    says f
+
+letter p
+  p before voiced word  says b     # chłop go
+  p before voiced       says b
+  pp   says p p   marked geminate yes
+  p    says p
+
+# The t of trz and the d of drz end a cluster rather than start an affricate,
+# and are marked so, `tense' being a value no consonant has and nothing else
+# reads: the duration rules in is_dur.up give such a stop a longer release,
+# which is what tells trzy from czy and drzewo from dżem.
+letter t
+  t before rz          says t       marked tenseness tense   # trzy
+  tri before vowel at word start  says t r i   # trio, triumf, triangel
+  t before voiced word  says d     # kot biega
+  t before voiced       says d
+  tt   says t t   marked geminate yes
+  t    says t
+
+letter v
+  vv   says v v   marked geminate yes
+  v    says v
+
+letter k
+  kt before voiced word  says g d  # fakt był
+  k before voiced word  says g     # jak dobrze
+  k before voiced       says g     # jakby, także
+  k    says k
+
+letter x
+  x    says k s
+
+letter a
+  a    says a
+
+letter l
+  ll   says l l   marked geminate yes
+  l    says l
+
+letter m
+  mm   says m m   marked geminate yes
+  m    says m
+
+# u is a vowel, Polish writing its glide ł. After a or e it is the glide,
+# since au and eu are how Polish spells the diphthong of a loanword: auto,
+# pauza, Europa, neutralny. Except where a word ends -eum or -eusz, muzeum and
+# Mateusz, and where a prefix meets a u, which the n and z blocks take at the
+# start of a word: nauka, zaufanie, nieufny.
+letter u
+  u accented             says u
+  u after e before m at word end  says u   # muzeum, liceum
+  u after e before sz at word end  says u  # Mateusz, Tadeusz
+  u after a              says w     # auto, pauza, Australia
+  u after e              says w     # Europa, neutralny
+  u                      says u
+
+letter i
+  i accented             says i
+  i after vowel          says i     # naiwny, moi
+  i before vowel         says y     # biały, pies
+  i                      says i

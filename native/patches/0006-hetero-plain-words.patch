@@ -1,0 +1,120 @@
+hetero: fork table kept, user readings forced in ETI spellings
+
+The fork's grammar table stays for the upstream rows. produce, persona,
+personas, quality, address and jose leave it: the first three are forced
+with the users ETI phone spellings, honoured literally when they match;
+quality/address stay out by decision and jose reads from its dict entry.
+High bytes count as word bytes. Applied at build time.
+diff --git a/src/eci/hetero/eci_hetero.c b/src/eci/hetero/eci_hetero.c
+index d75b837..cbddd34 100644
+--- a/src/eci/hetero/eci_hetero.c
++++ b/src/eci/hetero/eci_hetero.c
+@@ -77,14 +77,6 @@ static const Hetero words[] = {
+     { "digest",     0,                    "`[.0dX.1JEst]"        },
+     { "export",     0,                    "`[.0Ek.1spcrt]"       },
+     { "exports",    0,                    "`[.0Ek.1spcrts]"      },
+-    { "produce",    "`[.1pro.0dus]",      0                      },
+-    { "quality",    "`[kw1clIti]",         0                      },
+-    { "qualities",  "`[kw1clItiz]",        0                      },
+-    { "persona",    "`[pxrs1onx]",         0                      },
+-    { "personas",   "`[pxrs1onxz]",        0                      },
+-    { "address",    "`[xdr1Es]",           0                      },
+-    { "addresses",  "`[xdr1Esz]",          0                      },
+-    { "jose",       "`[hoz1e]",            0                      },
+     { "transfer",   0,                    "`[.0trAns.1fR]"       },
+     { "transfers",  0,                    "`[.0trAns.1fRz]"      },
+     { "transplant", 0,                    "`[.0trAnz.1plAnt]"    },
+@@ -94,6 +86,26 @@ static const Hetero words[] = {
+ 
+ #define WORDS (int)(sizeof words / sizeof words[0])
+ 
++/* Words always said one way, whatever stands around them. Unlike the
++   heteronyms above these consult no grammar: the reading given here is
++   written in the word's place every time the heteronym table leaves it
++   alone. Whole words only, so that an inflection keeps its own ending
++   for the rules to read. The readings are annotations in ETI spellings
++   and are honoured literally when they match, stress marks and all --
++   the oracle answers persona [.0pXr.1so.0na] mark for mark. */
++typedef struct {
++    const char *word;
++    const char *say;      /* the annotation written in its place */
++} Forced;
++
++static const Forced forced[] = {
++    { "produce",   "`[.0pro.1du.0Te]" },
++    { "persona",   "`[.0pXr.1so.0na]" },
++    { "personas",  "`[.0pXr.1so.0naz]" },
++};
++
++#define FORCED (int)(sizeof forced / sizeof forced[0])
++
+ /* What the word before says about what this one is.
+  *
+  * The engine's own test looks no further than one word back and neither does
+@@ -127,8 +139,12 @@ static int among(const char *word, size_t n, const char *const *list)
+ 
+ static int is_word_byte(char c)
+ {
+-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+-        || (c >= '0' && c <= '9') || c == '\'';
++    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
++        || (c >= '0' && c <= '9') || c == '\'')
++        return 1;
++    /* High bytes too, so a word holding an enye stays one token for the
++       matching below. ASCII text is unaffected. */
++    return (unsigned char)c >= 0x80;
+ }
+ 
+ /* Which of the table this word is, or -1. */
+@@ -143,6 +159,19 @@ static int which(const char *at, size_t n)
+     return -1;
+ }
+ 
++/* Which of the forced words this word is, or -1. Whole words only, so
++   that an inflection keeps its own ending for the rules to read. */
++static int which_forced(const char *at, size_t n)
++{
++    int i;
++
++    for (i = 0; i < FORCED; i++)
++        if (strlen(forced[i].word) == n
++            && strncasecmp(forced[i].word, at, n) == 0)
++            return i;
++    return -1;
++}
++
+ /* The word before the one at `at', as an offset and a length. Answers 0 when
+    there is none. */
+ static const char *word_before(const char *text, const char *at, size_t *n)
+@@ -175,6 +204,12 @@ static size_t room_for(const char *text)
+         if (b > most)
+             most = b;
+     }
++    for (i = 0; i < FORCED; i++) {
++        size_t a = strlen(forced[i].say);
++
++        if (a > most)
++            most = a;
++    }
+     return strlen(text) * (most + 2) + 1;
+ }
+ 
+@@ -220,6 +255,18 @@ char *hetero_rewrite(const char *text)
+                 continue;
+             }
+         }
++        /* The table left it alone: a forced word is said as written. */
++        {
++            int f = which_forced(start, n);
++
++            if (f >= 0) {
++                const char *say = forced[f].say;
++
++                memcpy(out + at, say, strlen(say));
++                at += strlen(say);
++                continue;
++            }
++        }
+         memcpy(out + at, start, n);
+         at += n;
+     }

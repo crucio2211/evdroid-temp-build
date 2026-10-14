@@ -1,0 +1,215 @@
+engine: decimal thousandths for rules lifted from 6.1 (Mudb0y 7760e07)
+
+Ports the VM half of "Read the rest of 6.1's compiled shapes, and give
+the machine thousandths": a fifth global-variable kind DG_FIXED (-5, a
+whole number of thousandths in an eight-byte cell), the matching DK_FIXED
+location kind, the delta_muldiv helper (a*b/c in 64 bits, rounded or
+truncated), and the OP_MULDIV interpreter op that runs it. delta_new /
+delta_delete / initGlobalVars learn the fixed cells, reusing the two
+words IBM left unused (nfixed at 0x000c, fixed at 0x0024).
+
+No behaviour change on its own: no rule in this tree names a fixed
+variable yet, and OP_MULDIV is appended after OP_FTOL so every existing
+op keeps its number. It is the foundation the lifted .up rules need.
+
+diff --git a/src/delta/delta.h b/src/delta/delta.h
+index 0000000..0000000 100644
+--- a/src/delta/delta.h
++++ b/src/delta/delta.h
+@@ -366,11 +366,39 @@ typedef struct {
+ /* One global variable of the machine, as the language declared it. Every
+    variable lives in the tail of delta_state as a cell: its type tag first,
+    then its value, so that a pointer to the value always has the tag just
+-   in front of it. There are four kinds and the tag says which. */
++   in front of it. There are five kinds and the tag says which. */
+ #define DG_WORD      (-6)   /* a 32-bit value, in an eight-byte cell */
+ #define DG_LONG      (-3)   /* likewise, but the language calls it a long */
+ #define DG_SHORT     (-4)   /* a 16-bit value, in a four-byte cell */
+ #define DG_COMPOUND  (-9)   /* a run of bytes, described separately */
++/* What ETI's 6.1 holds as a double, here a whole number of thousandths in an
++   eight-byte cell: no language IBM shipped declares one, and the signal path
++   is kept to whole numbers so that a machine with no floating point can run
++   every language the same. A thousandth holds every constant 6.1's rules
++   write but a few in set_global_constants exactly, which is why it is a
++   decimal scale rather than a binary one. */
++#define DG_FIXED     (-5)
++#define DELTA_FIXED_ONE 1000
++
++/* a * b / c with the product held in sixty-four bits, which is what a rule
++   lifted from 6.1 does its decimal arithmetic in: a product of thousandths
++   divided back by a thousand, a quotient multiplied up by one first. Rounded
++   to the nearest, half away from nought, where the original worked in
++   doubles; truncated towards nought where it truncated one to a whole
++   number. A division by nought answers nought, since there is no whole
++   number for the infinity the original would have held. */
++static inline int32_t delta_muldiv(int32_t a, int32_t b, int32_t c, int round)
++{
++    int64_t n = (int64_t)a * b;
++    int64_t an = n < 0 ? -n : n;
++    int64_t ad = c < 0 ? -(int64_t)c : c;
++    int64_t q;
++
++    if (ad == 0)
++        return 0;
++    q = round ? (an + ad / 2) / ad : an / ad;
++    return (int32_t)((n < 0) != (c < 0) ? -q : q);
++}
+ 
+ /* Where the cells start, which is the first byte of delta_state the fields
+    above do not name -- so it follows the struct rather than the struct being
+@@ -429,15 +457,18 @@ struct delta_state {
+     int32_t      ncompound;       /* 0x0000 */
+     int32_t      nlong;           /* 0x0004 */
+     int32_t      nshort;          /* 0x0008 */
+-    int32_t      unknown_000c;
++    /* IBM left this word and the one at 0x24 unused, and they sit where the
++       other kinds' count and index do; a language lifted from 6.1 keeps its
++       DG_FIXED variables here. */
++    int32_t      nfixed;          /* 0x000c */
+     int32_t      nword;           /* 0x0010 */
+     /* Where each variable's value is. Nothing outside delta_new knows what
+        offset a variable landed at; everything reaches one through these. */
+     evv_ref     word;            /* 0x0014 */
+     evv_ref     compound;     /* 0x0018 */
+     evv_ref     lng;             /* 0x001c */
+     evv_ref     shrt;            /* 0x0020 */
+-    int32_t      unknown_0024;
++    evv_ref     fixed;           /* 0x0024 */
+     evv_ref     sets;            /* 0x0028, the language's lookup sets, one
+                                      0x24-byte descriptor each */
+     evv_ref     act_table;       /* 0x002c, the dictionary's action table,
+@@ -512,6 +543,7 @@ typedef struct {
+ #define DK_SHORT  (-2)
+ #define DK_LONG   (-3)
+ #define DK_SHORT2 (-4)
++#define DK_FIXED  (-5)   /* thousandths, as DG_FIXED says */
+ #define DK_SYNC   (-6)
+ 
+ /* A compiled location: what a rule names when it refers to a variable. A
+diff --git a/src/delta/delta_rules.c b/src/delta/delta_rules.c
+index 0000000..0000000 100644
+--- a/src/delta/delta_rules.c
++++ b/src/delta/delta_rules.c
+@@ -52,7 +52,7 @@ enum {
+     OP_CALL, OP_JUMP, OP_BRANCH, OP_CMP, OP_ALU2, OP_ALU1, OP_LOAD,
+     OP_STORE, OP_SWITCH, OP_MAP, OP_RETURN, OP_SCALE, OP_ADDK, OP_MUL,
+     OP_DIV, OP_WIDEN, OP_SETCC, OP_PUSH, OP_SETARG, OP_POPN, OP_POPREG,
+-    OP_FTOL
++    OP_FTOL, OP_MULDIV
+ };
+ 
+ /* The argument area is kept as it was rather than worked out per call. The
+@@ -624,6 +624,19 @@ static void step(interp *st)
+         break;
+     }
+ 
++    /* What a rule lifted from 6.1 does its decimal arithmetic with, in
++       whole numbers: delta_muldiv in delta.h. */
++    case OP_MULDIV: {
++        int round = *p++;
++        int32_t a = operand_read(st, &p, 4, 1);
++        int32_t b = operand_read(st, &p, 4, 1);
++        int32_t c = operand_read(st, &p, 4, 1);
++        unsigned char code = *p++;
++
++        reg_write(st, code, delta_muldiv(a, b, c, round));
++        break;
++    }
++
+     case OP_ADDK: {
+         int32_t k = delta_rule_imm[get16(p)];
+         int32_t v;
+diff --git a/src/eci/bridge/eci_deltaglob.c b/src/eci/bridge/eci_deltaglob.c
+index 0000000..0000000 100644
+--- a/src/eci/bridge/eci_deltaglob.c
++++ b/src/eci/bridge/eci_deltaglob.c
+@@ -37,8 +37,8 @@ delta_state *delta_new(void)
+     const delta_language *lang = delta_lang_now();
+     delta_state *d;
+     int32_t      at, i;
+-    int32_t      nword = 0, nlong = 0, nshort = 0, ncompound = 0;
+-    int32_t      w = 0, l = 0, s = 0, c = 0;
++    int32_t      nword = 0, nlong = 0, nshort = 0, ncompound = 0, nfixed = 0;
++    int32_t      w = 0, l = 0, s = 0, c = 0, f = 0;
+ 
+     /* The constants go where a value can name them before anything
+        can name one. */
+@@ -55,19 +55,22 @@ delta_state *delta_new(void)
+     d->compound = EVV_REF(0);
+     d->lng = EVV_REF(0);
+     d->shrt = EVV_REF(0);
++    d->fixed = EVV_REF(0);
+ 
+     for (i = 0; i < delta_globals_n; i++)
+         switch (delta_globals[i]) {
+         case DG_WORD:     nword++;     break;
+         case DG_LONG:     nlong++;     break;
+         case DG_SHORT:    nshort++;    break;
+         case DG_COMPOUND: ncompound++; break;
++        case DG_FIXED:    nfixed++;    break;
+         }
+ 
+     d->nword     = nword * 2;
+     d->nlong     = nlong * 2;
+     d->nshort    = nshort * 2;
+     d->ncompound = ncompound * 2;
++    d->nfixed    = nfixed * 2;
+ 
+     d->word = EVV_REF(malloc((size_t)d->nword * sizeof *EVV_AT(int32_t **, d->word)));
+     if (EVV_AT(int32_t **, d->word) == 0) {
+@@ -89,6 +92,15 @@ delta_state *delta_new(void)
+         delta_delete(d);
+         return 0;
+     }
++    /* Only a language lifted from 6.1 has any, and malloc of nothing may
++       answer null, which is not a failure. */
++    if (nfixed) {
++        d->fixed = EVV_REF(malloc((size_t)d->nfixed * sizeof *EVV_AT(int32_t **, d->fixed)));
++        if (EVV_AT(int32_t **, d->fixed) == 0) {
++            delta_delete(d);
++            return 0;
++        }
++    }
+ 
+     /* Lay the cells out in declaration order and index each one twice. A
+        compound's body is not touched here; initGlobalVars fills it from
+@@ -128,6 +140,16 @@ delta_state *delta_new(void)
+             at += 4;
+             break;
+ 
++        case DG_FIXED:
++            at   = ALIGN_UP(at, 4);
++            cell = (unsigned char *)d + at;
++            *(int16_t *)cell        = DG_FIXED;
++            *(int32_t *)(cell + 4)  = 0;
++            EVV_AT(int32_t **, d->fixed)[f] = EVV_AT(int32_t **, d->fixed)[f + nfixed] = (int32_t *)(cell + 4);
++            f++;
++            at += 8;
++            break;
++
+         case DG_COMPOUND:
+             /* A compound whose first word is 6 holds four-byte items and goes
+                on a four-byte boundary; the rest want two. The lifter's model
+@@ -201,6 +223,10 @@ void delta_delete(delta_state *d)
+         free(EVV_AT(int32_t **, d->lng));
+         d->lng = EVV_REF(0);
+     }
++    if (EVV_AT(int32_t **, d->fixed) != 0) {
++        free(EVV_AT(int32_t **, d->fixed));
++        d->fixed = EVV_REF(0);
++    }
+ 
+     delta_lang_free(d);
+     delta_lang_set(was);
+diff --git a/src/eci/bridge/eci_deltalife.c b/src/eci/bridge/eci_deltalife.c
+index 0000000..0000000 100644
+--- a/src/eci/bridge/eci_deltalife.c
++++ b/src/eci/bridge/eci_deltalife.c
+@@ -111,4 +111,7 @@ void initGlobalVars(delta_state *d)
+ 
+     for (i = 0; i < d->nshort; i++)
+         *EVV_AT(int16_t **, d->shrt)[i] = 0;
++
++    for (i = 0; i < d->nfixed; i++)
++        *EVV_AT(int32_t **, d->fixed)[i] = 0;
+ }

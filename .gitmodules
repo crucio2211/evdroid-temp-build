@@ -1,0 +1,4 @@
+[submodule "native/openevv"]
+	path = native/openevv
+	url = https://github.com/crucio2211/openevv-16k.git
+	branch = eng61
