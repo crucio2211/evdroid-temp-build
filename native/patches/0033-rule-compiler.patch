@@ -1,27 +1,12 @@
 tools: muldiv op and through-form across the rule compiler (Mudb0y 7760e07)
 
 Ports the compiler half of thousandths support: decompile emits
-delta_muldiv calls; emit/lower/patterns carry the MULDIV op end to
+delta_muldiv calls and walks fixed kinds; emit/lower/patterns carry the MULDIV op end to
 end; upper accepts statement-record locations, the through pointer
 form, scale/truncate/multiply/divide say-forms, short call args,
 and a dispatch that tolerates backtrack-nothing-planted. Verified
 by build green + identical gate (no current rule uses the forms).
 
-diff --git a/tools/rules/decompile.py b/tools/rules/decompile.py
-index 6f443b8..0d6abaf 100755
---- a/tools/rules/decompile.py
-+++ b/tools/rules/decompile.py
-@@ -371,6 +371,10 @@ def emit(rule):
-                                            term)
-             body.append('    ' + rule.reg_write(
-                 rule.raw(last), '(int32_t)(%s)' % expr))
-+        elif op == 'muldiv':
-+            body.append('    ' + rule.reg_write(
-+                rule.raw(last), 'delta_muldiv(%s, %s, %s, %d)'
-+                % (v(ops[0]), v(ops[1]), v(ops[2]), shape[1])))
-         elif op == 'widen':
-             body.append('    r2 = r0 >> 31;')
-         elif op == 'setcc':
 diff --git a/tools/rules/emit.py b/tools/rules/emit.py
 index b51a8ea..3859cb3 100755
 --- a/tools/rules/emit.py
@@ -248,10 +233,21 @@ index c0c3034..71cf0dd 100644
  
          self.start("gave_up")
 diff --git a/tools/rules/decompile.py b/tools/rules/decompile.py
-index 6f443b8..6f7c1b1 100755
+index 6f443b8..9bc2134 100755
 --- a/tools/rules/decompile.py
 +++ b/tools/rules/decompile.py
-@@ -1185,7 +1185,7 @@ def cells(base):
+@@ -371,6 +371,10 @@ def emit(rule):
+                                            term)
+             body.append('    ' + rule.reg_write(
+                 rule.raw(last), '(int32_t)(%s)' % expr))
++        elif op == 'muldiv':
++            body.append('    ' + rule.reg_write(
++                rule.raw(last), 'delta_muldiv(%s, %s, %s, %d)'
++                % (v(ops[0]), v(ops[1]), v(ops[2]), shape[1])))
+         elif op == 'widen':
+             body.append('    r2 = r0 >> 31;')
+         elif op == 'setcc':
+@@ -1185,7 +1189,7 @@ def cells(base):
      if not os.path.exists(path):
          return []
      text = open(path, encoding="utf-8").read()
@@ -260,7 +256,7 @@ index 6f443b8..6f7c1b1 100755
      decls = re.findall(r'\{\s*(\d+),\s*(\d+)\s*\}',
                         text[text.index('delta_compounds[]'):])
      inits = [int(a) for a, _b in decls]
-@@ -1196,12 +1196,12 @@ def cells(base):
+@@ -1196,12 +1200,12 @@ def cells(base):
  
      out = []
      at = base
