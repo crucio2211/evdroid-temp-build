@@ -44,7 +44,7 @@ jobs:
       - name: Dump patched klatt region
         working-directory: native/openevv
         run: |
-          sed -n '616,624p' src/klatt/klatt_run.c | cat -A
+          grep -n 'cell_word(c1' src/klatt/klatt_run.c; md5sum src/klatt/klatt_run.c
 
       - name: Build the phonemes harness
         working-directory: native/openevv
