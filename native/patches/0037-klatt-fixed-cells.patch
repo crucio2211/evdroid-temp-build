@@ -28,7 +28,7 @@ diff --git a/src/klatt/klatt_run.c b/src/klatt/klatt_run.c
 +}
  #define FRAME_WORDS   62
  #define FRAME_END     63
-@@ -598,12 +610,14 @@ int callSynthesizeArray(DeltaThis *d, Cell *rate, Cell *c2, Cell *c3,
+@@ -598,12 +610,13 @@ int callSynthesizeArray(DeltaThis *d, Cell *rate, Cell *c2, Cell *c3,
 -    v2 = c2->l;
 -    v3 = c3->l;
 -    v4 = c4->l;
@@ -52,8 +52,7 @@ diff --git a/src/klatt/klatt_run.c b/src/klatt/klatt_run.c
 +    v11 = cell_word(c11);
 +    v12 = cell_word(c12);
      v13 = c13->w;
-+    fprintf(stderr, "synthargs: v12=%d v13=%d p12=%d p13=%d\\n", v12, v13, (int)c12->pad, (int)c13->pad);
-+    fflush(stderr);
++    fputs("sa", stderr);
 @@ -617,7 +629,7 @@ int callSynthesizeArray(DeltaThis *d, Cell *rate, Cell *c2, Cell *c3,
         is a value and has to be read back as one: a pointer is wider than that
         where a pointer is wider than a value. */
