@@ -8,8 +8,8 @@ digested, digesting, digests, recognizable, retailers). Entries are
 kept (not deleted): our ea_roots rule set differs from upstream's,
 so the dictionary keeps deciding these words deterministically.
 
-﻿diff --git a/lang/enus/enus.dict b/lang/enus/enus.dict
-index 95fd238..1589ef8 100644
+?diff --git a/lang/enus/enus.dict b/lang/enus/enus.dict
+index 95fd238..f3a0390 100644
 --- a/lang/enus/enus.dict
 +++ b/lang/enus/enus.dict
 @@ -1246,7 +1246,7 @@ dictionary pnames1 statement 1 width 0 records sound
@@ -412,8 +412,3 @@ index 95fd238..1589ef8 100644
    retreat 255 255 97 says r x t r i t
    septuagenarian 255 255 98 says s E p t y u x J x n E r i x n
    timbre 255 255 4 says t A m b x r
-@@ -6018,3 +6029,4 @@ dictionary eng_words statement 1 width 0 records sound
-   y'know 255 255 117 says y X n o
-   Libra 255 255 44 says l i b r H
-   Pisces 255 255 65 says p Y s i s
-+
