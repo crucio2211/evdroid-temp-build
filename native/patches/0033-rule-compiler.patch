@@ -1,0 +1,249 @@
+tools: muldiv op and through-form across the rule compiler (Mudb0y 7760e07)
+
+Ports the compiler half of thousandths support: decompile emits
+delta_muldiv calls; emit/lower/patterns carry the MULDIV op end to
+end; upper accepts statement-record locations, the through pointer
+form, scale/truncate/multiply/divide say-forms, short call args,
+and a dispatch that tolerates backtrack-nothing-planted. Verified
+by build green + identical gate (no current rule uses the forms).
+
+diff --git a/tools/rules/decompile.py b/tools/rules/decompile.py
+index 6f443b8..0d6abaf 100755
+--- a/tools/rules/decompile.py
++++ b/tools/rules/decompile.py
+@@ -371,6 +371,10 @@ def emit(rule):
+                                            term)
+             body.append('    ' + rule.reg_write(
+                 rule.raw(last), '(int32_t)(%s)' % expr))
++        elif op == 'muldiv':
++            body.append('    ' + rule.reg_write(
++                rule.raw(last), 'delta_muldiv(%s, %s, %s, %d)'
++                % (v(ops[0]), v(ops[1]), v(ops[2]), shape[1])))
+         elif op == 'widen':
+             body.append('    r2 = r0 >> 31;')
+         elif op == 'setcc':
+diff --git a/tools/rules/emit.py b/tools/rules/emit.py
+index b51a8ea..3859cb3 100755
+--- a/tools/rules/emit.py
++++ b/tools/rules/emit.py
+@@ -46,7 +46,7 @@ dlk = sibling("module/link")
+ OPS = [
+     "CALL", "JUMP", "BRANCH", "CMP", "ALU2", "ALU1", "LOAD", "STORE",
+     "SWITCH", "MAP", "RETURN", "SCALE", "ADDK", "MUL", "DIV", "WIDEN",
+-    "SETCC", "PUSH", "SETARG", "POPN", "POPREG", "FTOL",
++    "SETCC", "PUSH", "SETARG", "POPN", "POPREG", "FTOL", "MULDIV",
+ ]
+ OP = {name: i for i, name in enumerate(OPS)}
+ 
+@@ -331,6 +331,16 @@ class Emitter:
+                             self.u16(self.imm.add((step[1] >> 32)
+                                                   & 0xffffffff))
+                     self.u8(reg_code(op[2]))
++                elif kind == "muldiv":
++                    # a * b / c in sixty-four bits, rounded or truncated:
++                    # what a rule lifted from 6.1 does its decimal
++                    # arithmetic with, in thousandths.
++                    self.u8(OP["MULDIV"])
++                    self.u8(1 if op[1] == "round" else 0)
++                    self.operand(op[2], d.pbase)
++                    self.operand(op[3], d.pbase)
++                    self.operand(op[4], d.pbase)
++                    self.u8(reg_code(op[5]))
+                 elif kind == "widen":
+                     self.u8(OP["WIDEN"])
+                     self.u8(1 if op[1] == "cltd" else 0)
+diff --git a/tools/rules/lower.py b/tools/rules/lower.py
+index 465a7ed..1199d74 100644
+--- a/tools/rules/lower.py
++++ b/tools/rules/lower.py
+@@ -186,6 +186,12 @@ def put_op(op, out, name_of):
+                 out.extend(("times" if step[0] == "mulk" else "plusk",
+                             "0x%016x" % step[1]))
+         out.extend(("into", put_reg(op[2])))
++    elif k == "muldiv":
++        out.append(str(op[1]))
++        put_operand(op[2], out)
++        put_operand(op[3], out)
++        put_operand(op[4], out)
++        out.extend(("into", put_reg(op[5])))
+     elif k == "widen":
+         out.append(str(op[1]))
+     elif k == "setcc":
+@@ -285,6 +291,15 @@ def get_op(w):
+                 raise ValueError("no floating step called %r" % (how,))
+         word(w, "into")
+         return ("ftol", tuple(steps), get_reg(w.pop(0)))
++    if k == "muldiv":
++        how = w.pop(0)
++        if how not in ("round", "cut"):
++            raise ValueError("a muldiv rounds or cuts, not %r" % (how,))
++        a = get_operand(w)
++        b = get_operand(w)
++        c = get_operand(w)
++        word(w, "into")
++        return ("muldiv", how, a, b, c, get_reg(w.pop(0)))
+     if k == "widen":
+         return ("widen", w.pop(0))
+     if k == "setcc":
+diff --git a/tools/rules/patterns.py b/tools/rules/patterns.py
+index 3f0c591..26c3322 100755
+--- a/tools/rules/patterns.py
++++ b/tools/rules/patterns.py
+@@ -45,7 +45,7 @@ CONSTS_C = os.path.join(LANG_DIR, 'delta_consts_%s.c' % LANG_TAG)
+ OPS = ['call', 'jump', 'branch', 'cmp', 'alu2', 'alu1', 'load',
+        'store', 'switch', 'map', 'return', 'scale', 'addk', 'mul',
+        'div', 'widen', 'setcc', 'push', 'setarg', 'popn', 'popreg',
+-       'ftol']
++       'ftol', 'muldiv']
+ 
+ KINDS = ['none', 'imm', 'sym', 'slot', 'slotaddr', 'state', 'statefld',
+          'reg', 'ind']
+@@ -253,6 +253,14 @@ class Code:
+                     q2 += 4
+             return ('ftol', tuple(steps)), (self.code[q2],), ops, [], q2 + 1
+ 
++        if op == 'muldiv':
++            # How it rounds, three operands, and the register the answer
++            # goes in, which is the last byte as it is for mul.
++            _a, _av, q2 = one(q + 1)
++            _b, _bv, q3 = one(q2)
++            _c, _cv, q4 = one(q3)
++            return ('muldiv', self.code[q]), (), ops, [], q4 + 1
++
+         if op in ('popn', 'popreg'):
+             return (op,), (self.code[q],), ops, [], q + 1
+ 
+diff --git a/tools/rules/upper.py b/tools/rules/upper.py
+index c0c3034..71cf0dd 100644
+--- a/tools/rules/upper.py
++++ b/tools/rules/upper.py
+@@ -420,14 +420,38 @@ class Compiler:
+                 fault(where, "%r is %d bytes and a cell is eight"
+                       % (name, self.r.sizes.get(name, 4)))
+             part = w.pop(0) if w else ""
++            at, _cw, _cs = self.r.locals[name]
++            if part in WIDTH:
++                # A whole statement record held in the local, as a location
++                # naming a statement type and no field holds one: its bytes
++                # start where a cell's value does, and `word 4' is four bytes
++                # from that start.
++                n = number(where, w.pop(0)) if w else None
++                if n is None or 4 + n + WIDTH[part] > self.r.sizes[name]:
++                    fault(where, "%r holds no %s at %r" % (name, part, n))
++                return ("slot", self.slot(at + 4 + n)), WIDTH[part], False
+             if part not in CELL:
+                 fault(where, "a cell has a kind, a field and a value, and"
+                       " nothing called %r" % part)
+             off, width, signed = CELL[part]
+-            at, _cw, _cs = self.r.locals[name]
+             return ("slot", self.slot(at + off)), width, signed
+         if head == "sym":
+             return ("sym", w.pop(0)), 4, False
++        if head == "through":
++            # What a pointer points at: `through <value> <width> <n>' is the
++            # value that many bytes past where the pointer says, which is how
++            # a rule reads a cell or a record its caller handed it. The
++            # pointer goes through a register of its own, one each for the
++            # two a statement can read.
++            ptr, pw, _ps = self.value(where, w)
++            if pw != 4:
++                fault(where, "a pointer is a whole word")
++            width, signed = kind_of(where, w)
++            n = number(where, w.pop(0)) if w else 0
++            self.through = getattr(self, "through", 0) + 1
++            reg = ("%edi", "%esi")[(self.through - 1) % 2]
++            self.op("load", "movl", ptr, reg)
++            return ("indirect", ("reg", reg), n), width, signed
+         if head == "global":
+             width, signed = kind_of(where, w)
+             return ("statefld", number(where, w.pop(0))), width, signed
+@@ -574,6 +598,46 @@ class Compiler:
+                 fault(where, "the machine has no arithmetic on one byte")
+             self.op("alu", table[head], src, place)
+ 
++        elif head in ("scale", "truncate", "multiply", "divide"):
++            # The products and quotients a rule lifted from 6.1 makes, in
++            # whole numbers: `scale x by a over b' is x * a / b rounded to the
++            # nearest, which is a product or a quotient of thousandths;
++            # `truncate' is the same cut towards nought, which is a double
++            # made a whole number; `multiply a into x' and `divide x by a' are
++            # the integer ones. All four are one operation, worked in sixty-
++            # four bits so that the product cannot overflow on the way.
++            if head == "multiply":
++                a = self.value(where, w)
++                if not w or w.pop(0) != "into":
++                    fault(where, "a multiply says `multiply <value> into"
++                          " <place>'")
++                place, width, _s = self.place_of(where, w)
++                b, c, how = ("imm", 1), 4, "cut"
++                parts = [(place, width, _s), a, (("imm", 1), 4, False)]
++            else:
++                place, width, _s = self.place_of(where, w)
++                if not w or w.pop(0) != "by":
++                    fault(where, "%s says `by'" % head)
++                a = self.value(where, w)
++                if head == "divide":
++                    parts = [(place, width, _s), (("imm", 1), 4, False), a]
++                else:
++                    if not w or w.pop(0) != "over":
++                        fault(where, "%s says `over'" % head)
++                    parts = [(place, width, _s), a, self.value(where, w)]
++                how = "round" if head == "scale" else "cut"
++            if w:
++                fault(where, "%r is left over" % " ".join(w))
++            ops = []
++            for k, (op, wd, sg) in enumerate(parts):
++                if wd < 4:
++                    reg = "%" + ("edx", "ebx", "esi")[k]
++                    self.op("load", WIDEN[(wd, sg)], op, reg)
++                    op = ("reg", reg)
++                ops.append(op)
++            self.op("muldiv", how, ops[0], ops[1], ops[2], "%ecx")
++            self.op("store", MOVE[width], ("reg", "%ecx"), place)
++
+         elif head in ("increment", "decrement", "negate"):
+             place, width, _s = self.place_of(where, w)
+             if width == 1:
+@@ -597,12 +661,19 @@ class Compiler:
+             if w[:1] == ["at"]:
+                 del w[:1]
+                 off = number(where, w.pop(0))
++            # As wide as the place it goes into, which is a word unless the
++            # line says otherwise: a short's value in a caller's cell is two
++            # bytes, and four written there would run past the cell.
++            width = 4
++            if w and w[0] in WIDTH:
++                width = WIDTH[w.pop(0)]
+             if sw < 4:
+                 self.op("load", WIDEN[(sw, ssigned)], src, "%ecx")
+             else:
+                 self.op("load", "movl", src, "%ecx")
+             self.op("load", "movl", ptr, "%edi")
+-            self.op("store", "movl", ("reg", "%ecx"),
++            self.op("store", MOVE[width], ("reg", {4: "%ecx", 2: "%cx",
++                                                    1: "%cl"}[width]),
+                     ("indirect", ("reg", "%edi"), off))
+ 
+         elif head == "place":
+@@ -765,8 +836,10 @@ class Compiler:
+         # One decrement a number, from one up to the highest planted, because
+         # that is how the answer is read: a decrement leaves nothing when the
+         # answer was the number of decrements so far. A number with nowhere to
+-        # carry on at costs the decrement and no branch.
+-        for tag in range(1, max(self.at_tag) + 1):
++        # carry on at costs the decrement and no branch. A rule that plants
++        # nothing backtracks only to undo what it did before giving up, as
++        # IBM's own do when a call fails partway through a run of deletions.
++        for tag in range(1, max(self.at_tag, default=0) + 1):
+             self.op("alu", "decl", None, ("reg", "%eax"))
+             if tag in self.at_tag:
+                 self.branch("e", self.at_tag[tag])
+@@ -807,8 +880,6 @@ class Compiler:
+             self.op("jump", "gave_up")
+ 
+         if self.dispatches:
+-            if not self.at_tag:
+-                fault(r.where, "%s backtracks with nothing planted" % r.name)
+             self.dispatch()
+ 
+         self.start("gave_up")
