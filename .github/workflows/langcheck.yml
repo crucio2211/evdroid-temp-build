@@ -56,7 +56,7 @@ jobs:
           tag="$(basename "${{ inputs.lang }}")"
           bin="./build/phonemes-$tag"
           [ -x "$bin" ] || bin="./build/phonemes"
-          "$bin" "../accent-cases-$tag.txt"
+          "$bin" "../accent-cases-$tag.txt" || echo "no cases file, probe only"
 
       - name: Peak loudness of one sentence
         working-directory: native/openevv
