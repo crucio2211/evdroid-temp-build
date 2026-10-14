@@ -1,0 +1,21 @@
+# US English's own characters: the code point a caller writes, and the
+# byte the machine knows it by. Identity mappings into the Western set,
+# so UTF-8 input converts to the same bytes a Western caller hands over.
+# tools/module/codepoints.py writes lang/enus/delta_codepoints_enus.c out
+# of this.
+
+00C1 C1   # A with acute
+00C7 C7   # C with cedilla
+00C9 C9   # E with acute
+00D1 D1   # N with tilde
+00D3 D3   # O with acute
+00DA DA   # U with acute
+00DC DC   # U with diaeresis
+00E1 E1   # a with acute
+00E7 E7   # c with cedilla
+00E9 E9   # e with acute
+00ED ED   # i with acute
+00F1 F1   # n with tilde
+00F3 F3   # o with acute
+00FA FA   # u with acute
+00FC FC   # u with diaeresis

@@ -12,10 +12,22 @@
 
 #include "delta_lang.h"
 
-/* None of its own: every character it has is in the
-   Western set the engine already knows. */
 const delta_codepoint enus_delta_codepoints[] = {
-    { 0, 0 },
+    { 0x00c1, 0xc1 },
+    { 0x00c7, 0xc7 },
+    { 0x00c9, 0xc9 },
+    { 0x00d1, 0xd1 },
+    { 0x00d3, 0xd3 },
+    { 0x00da, 0xda },
+    { 0x00dc, 0xdc },
+    { 0x00e1, 0xe1 },
+    { 0x00e7, 0xe7 },
+    { 0x00e9, 0xe9 },
+    { 0x00ed, 0xed },
+    { 0x00f1, 0xf1 },
+    { 0x00f3, 0xf3 },
+    { 0x00fa, 0xfa },
+    { 0x00fc, 0xfc },
 };
 
-const int32_t enus_delta_codepoints_n = 0;
+const int32_t enus_delta_codepoints_n = 15;
