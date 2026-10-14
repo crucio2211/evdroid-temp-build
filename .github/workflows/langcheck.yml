@@ -66,8 +66,8 @@ jobs:
           bin="./build/probe-$tag"
           [ -x "$bin" ] || bin="./build/probe"
           printf '%s\n' "${{ inputs.sentence }}" > /tmp/loud.txt
-          export DELTA_RULE_TRACE=200000
-          EVV_HETERO=on "$bin" @/tmp/loud.txt /tmp/loud.wav
+          export DELTA_RULE_TRACE=0
+          (gdb --version 2>/dev/null || sudo apt-get install -y gdb) >/dev/null 2>&1; echo "--- probe under gdb ---"; EVV_HETERO=on gdb -batch -ex run -ex bt -ex "info registers rax rip rsp" --args "$bin" @/tmp/loud.txt /tmp/loud.wav 2>&1 | tail -40
           python3 -c "
           import wave, array
           w = wave.open('/tmp/loud.wav')
