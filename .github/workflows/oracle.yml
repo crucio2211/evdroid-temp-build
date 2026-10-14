@@ -51,12 +51,13 @@ jobs:
       - name: Word placement queries (temp-only)
         working-directory: native/openevv
         run: |
-          for w in ':-(' ':-)' ':(' ':)' ';-)' ';)' 'celtics' 'conversed' 'vis-a-vis'; do
+          for w in ':-(' ':-)' ':(' ':)' ';-)' ';)' 'celtics' 'conversed' 'vis-a-vis' 'encourage'; do
             python3 tools/module/dict.py where eng_tok_dict "$w" || true
           done
-          for w in 'celtics' 'abstracted' 'conversed' 'recognizable'; do
+          for w in 'celtics' 'abstracted' 'conversed' 'recognizable' 'encourage'; do
             python3 tools/module/dict.py where roots5 "$w" || true
             python3 tools/module/dict.py where pnames1 "$w" || true
+            python3 tools/module/dict.py where roots1b "$w" || true
           done
 
       - name: Bake dictionaries from text (temp-only)
