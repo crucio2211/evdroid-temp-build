@@ -62,15 +62,16 @@ jobs:
       - name: Bake dictionaries from text (temp-only)
         working-directory: native/openevv
         run: |
+          git -c user.email=ci@temp -c user.name=temp add -A
+          git -c user.email=ci@temp -c user.name=temp commit -qm 'patched'
           python3 tools/module/dict.py build
           echo "--- bake status ---"
           git status --short | head -30
           git diff --stat | tail -8
-          if ! git -C "$GITHUB_WORKSPACE" diff --quiet -- native/openevv; then
-            git -C "$GITHUB_WORKSPACE" -c user.email=ci@temp -c user.name=temp add native/openevv
-            git -C "$GITHUB_WORKSPACE" -c user.email=ci@temp -c user.name=temp commit -qm 'dict bake'
-            git -C "$GITHUB_WORKSPACE" push origin HEAD:dict-bake --force
-          fi
+          git remote add temp "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/crucio2211/evdroid-temp-build.git" || true
+          git -c user.email=ci@temp -c user.name=temp add -A
+          git -c user.email=ci@temp -c user.name=temp commit -qm 'dict bake' || true
+          git push temp HEAD:engine-bake --force
 
       - name: Rebuild the harness with baked dictionaries (temp-only)
         working-directory: native/openevv
