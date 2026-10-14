@@ -52,8 +52,8 @@ diff --git a/src/klatt/klatt_run.c b/src/klatt/klatt_run.c
 +    v11 = cell_word(c11);
 +    v12 = cell_word(c12);
      v13 = c13->w;
-++    fprintf(stderr, "synthargs: v12=%d v13=%d p12=%d p13=%d\\n", v12, v13, (int)c12->pad, (int)c13->pad);
-++    fflush(stderr);
++    fprintf(stderr, "synthargs: v12=%d v13=%d p12=%d p13=%d\\n", v12, v13, (int)c12->pad, (int)c13->pad);
++    fflush(stderr);
 @@ -617,7 +629,7 @@ int callSynthesizeArray(DeltaThis *d, Cell *rate, Cell *c2, Cell *c3,
         is a value and has to be read back as one: a pointer is wider than that
         where a pointer is wider than a value. */
