@@ -57,7 +57,7 @@ jobs:
       - name: TEMP dict bake like APK
         working-directory: native/openevv
         run: |
-          make -f Makefile rulecode LANGS="lang/enus lang/engb lang/dede lang/eses lang/esus lang/frfr lang/frca lang/itit lang/plpl lang/jajp" >/dev/null 2>&1; EVV_LANG_DIR=lang/enus python3 tools/module/dict.py build 2>&1 | grep -v "dispenses\|dispense" | head -80; echo "bake exit: $?"; python3 tools/module/dict.py find encourage; python3 tools/module/dict.py find mutual
+          make -f Makefile rulecode LANGS="lang/enus lang/engb lang/dede lang/eses lang/esus lang/frfr lang/frca lang/itit lang/plpl lang/jajp" >/dev/null 2>&1; EVV_LANG_DIR=lang/enus python3 tools/module/dict.py build > /tmp/bake.log 2>&1; echo "bake exit: $?"; tail -40 /tmp/bake.log; python3 tools/module/dict.py find encourage; python3 tools/module/dict.py find mutual
 
       - name: Peak loudness of one sentence
         working-directory: native/openevv
