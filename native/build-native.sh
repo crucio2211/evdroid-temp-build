@@ -20,6 +20,28 @@ LANGS=${LANGS:-lang/enus}
 OUT=${OUT:-"$root/app/build/native/jniLibs"}
 JOBS=${JOBS:-$(nproc 2>/dev/null || echo 4)}
 
+# Two Gradle tasks (assembleRelease + assembleDebugAndroidTest) can run
+# this script at once on the same tree; the patch loop tolerates it but
+# the dictionary bake is read-modify-write and two of those at once
+# clobber each other's words. Serialize whole runs with an atomic
+# mkdir lock (portable: Linux, macOS, Git Bash). Fresh CI VMs make a
+# stale lock impossible across runs; the wait timeout keeps a crashed
+# holder from hanging the job forever.
+lockdir="$here/.build-native.lock"
+waited=0
+while ! mkdir "$lockdir" 2>/dev/null; do
+	sleep 5
+	waited=$((waited + 5))
+	if [ "$waited" -ge 600 ]; then
+		echo "build-native lock held 10 minutes; proceeding unlocked" >&2
+		lockdir=""
+		break
+	fi
+done
+if [ -n "$lockdir" ]; then
+	trap 'rmdir "$lockdir" 2>/dev/null || true' EXIT
+fi
+
 NDK=${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}
 if [ -z "$NDK" ]; then
 	echo "set ANDROID_NDK_HOME to an NDK r23 or later" >&2
