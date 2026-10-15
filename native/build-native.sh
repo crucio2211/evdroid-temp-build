@@ -64,6 +64,7 @@ fi
 for patch in "$here"/patches/*.patch; do
 	[ -e "$patch" ] || continue
 	if git -C "$engine" apply --reverse --check "$patch" >/dev/null 2>&1; then
+		echo "already applied $(basename "$patch")"
 		continue
 	fi
 	if ! git -C "$engine" apply --whitespace=nowarn "$patch"; then
