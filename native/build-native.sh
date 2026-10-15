@@ -89,6 +89,12 @@ else
 	echo "no python3: dictionaries stay as last baked" >&2
 fi
 
+# The bake mints arms for new words into the rule text; compile them too,
+# or the engine keeps reading the old ones. `make rulecode' writes the
+# generated rule code out of lang/<tag>/rules, which is where the bake
+# put the new arms, so run it again before compiling.
+make -C "$engine" -f Makefile rulecode LANGS="$LANGS"
+
 # Every directory the engine's headers sit in, the same set its Makefile builds
 # its own include path from. They stay relative because the link below runs
 # from the engine's own directory.
