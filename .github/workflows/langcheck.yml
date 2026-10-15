@@ -42,6 +42,10 @@ jobs:
           done
 
       - name: Dump patched klatt region
+      - name: TEMP dict bake like APK
+        working-directory: native/openevv
+        run: |
+          EVV_LANG_DIR=lang/enus python3 tools/module/dict.py build 2>&1 | tail -25
         working-directory: native/openevv
         run: |
           grep -n 'cell_word(c1' src/klatt/klatt_run.c; md5sum src/klatt/klatt_run.c
