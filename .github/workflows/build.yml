@@ -101,6 +101,10 @@ jobs:
         # would refuse it with "app not installed".
         run: ./gradlew assembleRelease assembleDebugAndroidTest -Pevvdroid.abis="$EVVDROID_ABIS" -Pevvdroid.minify=true -Pevvdroid.legacyPackaging=true -Pevvdroid.rules=bytecode -Pevvdroid.langs="$EVVDROID_LANGS" -Pevvdroid.versionCode="$((1000000 + GITHUB_RUN_NUMBER))" -Pevvdroid.keystore="$EVVDROID_KEYSTORE" -Pevvdroid.storePass="${{ secrets.EVVDROID_STORE_PASS }}" -Pevvdroid.keyPass="${{ secrets.EVVDROID_KEY_PASS }}" --stacktrace
 
+      - name: TEMP check baked words
+        run: |
+          grep -n -E "^  (encourage|mutual|annan|biogen) " native/openevv/lang/enus/enus.dict || echo "WORDS NOT IN TEXT"
+
       - name: Upload the APK
         uses: actions/upload-artifact@v4
         # Quota failures must not block the rolling release below.
