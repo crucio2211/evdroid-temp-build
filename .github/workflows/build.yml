@@ -92,7 +92,7 @@ jobs:
 
       - name: TEMP dump new-words in flat dict
         run: |
-          grep -n " 255 255 new" native/openevv/lang/enus/enus.dict | head -20; echo "---"; grep -c " 255 255 new" native/openevv/lang/enus/enus.dict
+          grep -n " 255 255 new" native/openevv/lang/enus/enus.dict || echo "no new-words in flat dict"; echo "---"; grep -c " 255 255 new" native/openevv/lang/enus/enus.dict
 
       - name: Build the release APK and compile the device checks
         # versionCode runs far ahead of every build ever shipped: the temp
