@@ -1,0 +1,22 @@
+intonation: period phrase matches final bang (drop IBM's)
+
+period_phrase matches a final mark of kind 13 and gives it no special
+assignment of its own; exclamation carries kind 4. Matching kind 4
+here as well sends `!' down the period path from the start: no
+question probe, no exclamation probe and their backtracks, and the
+generic sentence-final path then processes the utterance exactly as
+it processes `.'. Together with no-exclam (0017) nothing IBM did for
+`!' remains in force. The mark itself is untouched.
+
+diff --git a/lang/enus/rules/ut_inton.dr b/lang/enus/rules/ut_inton.dr
+--- a/lang/enus/rules/ut_inton.dr
++++ b/lang/enus/rules/ut_inton.dr
+@@ -1000,5 +1000,7 @@
+   load movw statefld 1546 into r0w
+   popn 7
+   cmp cmpw statefld 1514 reg r0w
+   branch je to L2
++  cmp cmpw imm 4 statefld 1514
++  branch je to L2
+ label L1 was at_0x79
+   push imm 94
