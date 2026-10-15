@@ -54,12 +54,12 @@ jobs:
           [ -x "$bin" ] || bin="./build/phonemes"
           "$bin" "../accent-cases-$tag.txt" || echo "no cases file, probe only"
 
-      - name:       - name: TEMP dict bake like APK
+      - name: TEMP dict bake like APK
         working-directory: native/openevv
         run: |
           EVV_LANG_DIR=lang/enus python3 tools/module/dict.py build 2>&1 | tail -25
 
-Peak loudness of one sentence
+- name: Peak loudness of one sentence
         working-directory: native/openevv
         run: |
           make probe LANGS="${{ inputs.lang }}" RULES="bytecode" OPT="-O2 -g" -j"$(nproc)"
