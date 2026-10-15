@@ -37,9 +37,23 @@ jobs:
         run: |
           for patch in "$GITHUB_WORKSPACE"/native/patches/*.patch; do
             [ -e "$patch" ] || continue
-            git -C native/openevv apply --whitespace=nowarn -v "$patch"
-            echo "applied $(basename "$patch")"
+            if out=$(patch -p1 --forward --silent --directory=native/openevv <"$patch" 2>&1); then
+              [ -n "$out" ] && echo "$out"
+              echo "applied $(basename "$patch")"
+              continue
+            fi
+            case "$out" in
+              *"previously applied"*|*"Skipping patch"*|*"already applied"*|*"Reversed"*)
+                echo "already applied $(basename "$patch")"
+                find native/openevv \( -name '*.rej' -o -name '*.orig' \) -delete
+                continue
+                ;;
+            esac
+            echo "$out" >&2
+            echo "could not apply $(basename "$patch")" >&2
+            exit 1
           done
+          find native/openevv \( -name '*.rej' -o -name '*.orig' \) -delete
 
 
       - name: Build the phonemes harness
