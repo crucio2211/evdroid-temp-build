@@ -1,16 +1,17 @@
 dict: English disputed names and stress by ear (Mudb0y 4a64afa)
 
 Ports the dictionary half of Decide English's disputed names and
-stress by ear: 43 pnames entries updated to the ear-decided readings
-(samples in test/samples/enus.words), 12 new entries added
+stress by ear: 37 pnames entries updated to the ear-decided readings
+(samples in test/samples/enus.words), 11 new entries added
 (celtics, abstracted, conversed, converses, conversing, chlorine,
-digested, digesting, digests, recognizable, retailers, buffeted
-override). Entries are
-kept (not deleted): our ea_roots rule set differs from upstream's,
-so the dictionary keeps deciding these words deterministically.
-Six words whose actions are shared (annan, biogen, gustafson,
-helena, minot, sentelle) take action `new`, forcing dedicated arms
-so the bake writes their stress instead of leaving it to code.
+digested, digesting, digests, recognizable, retailers).
+Entries are kept (not deleted): our ea_roots rule set differs from
+upstream's, so the dictionary keeps deciding these words
+deterministically. Seven words upstream gives dedicated arms (annan,
+biogen, buffeted, gustafson, helena, minot, sentelle) stay on
+their old readings here: minting arms for them needs the arms/newarm
+stress support, which is not ported, and a new word without it
+fails the bake.
 
 ?diff --git a/lang/enus/enus.dict b/lang/enus/enus.dict
 index 95fd238..f3a0390 100644
@@ -25,15 +26,6 @@ index 95fd238..f3a0390 100644
    ameritech 255 255 104 says x m E r X t E k
    ameritrust 255 255 105 says x m E r X t r H s t
    amiga 255 255 106 says x m i g x
-@@ -1269,7 +1269,7 @@ dictionary pnames1 statement 1 width 0 records sound
-   anglesey 255 255 122 says A G g x l s i
-   anheuser 255 255 123 says A n h Y z x r
-   ankara 255 255 124 says A G k x r x
--  annan 255 255 125 says a n a n
-+  annan 255 255 new stress 10 says A n X n
-   antares 255 255 126 says A n t a r i z
-   antilles 255 255 127 says A n t I l i z
-   antipodean 255 255 128 says A n t I p x d i Xx n
 @@ -1362,10 +1362,10 @@ dictionary pnames1 statement 1 width 0 records sound
    barone 255 255 222 says b R o n
    barbados 255 255 216 says b a r b e d o s
@@ -47,22 +39,12 @@ index 95fd238..f3a0390 100644
    basel 255 255 225 says b a z x l
    basinger 255 255 227 says b e s X G R
    bashir 255 255 226 says b x S I r
-@@ -1413,7 +1413,7 @@ dictionary pnames1 statement 1 width 0 records sound
-   bethpage 255 255 271 says b E T p e J
-   bevill 255 255 273 says b E v x l
-   bianco 255 255 275 says b i a G k o
--  biogen 255 255 281 says b Y x J E n
-+  biogen 255 255 new stress 201 says b Y o J E n
-   biondi 255 255 282 says b i a n d i
-   biosystems 255 255 283 says b Y o s I s t x m z
-   bideford 255 255 276 says b I d X f x r d
-@@ -1460,7 +1460,8 @@ dictionary pnames1 statement 1 width 0 records sound
+@@ -1460,7 +1460,7 @@ dictionary pnames1 statement 1 width 0 records sound
    budapest 255 255 340 says b u d x p E s t
    budweiser 255 255 341 says b H d w Y z R
    buford 255 255 346 says b y u f R d
 -  buffet 255 255 345 says b H f x t
 +  buffet 255 255 345 stress 01 says b x f e
-+  buffeted 255 255 new stress 100 says b H f X F X d
    bulawayo 255 255 348 says b U l x w e o
    bulgaria 255 255 349 says b H l g E r i x
    bullard 255 255 350 says b U l R d
@@ -186,15 +168,6 @@ index 95fd238..f3a0390 100644
    ginsberg 255 255 397 says g I n z b x r g
    ginsburg 255 255 398 says g I n z b x r g
    girozentrale 255 255 399 says g X r o z x n t r a l
-@@ -2150,7 +2151,7 @@ dictionary pnames2 statement 1 width 0 records sound
-   guccione 255 255 454 says g u C i o n e
-   gunnar 255 255 463 says g H n R
-   gunnison 255 255 464 says g H n X s x n
--  gustafson 255 255 465 says g u s t a f s x n
-+  gustafson 255 255 new stress 100 says g H s t x f s x n
-   gutierrez 255 255 466 says g u t y E r E z
-   ghanaian 255 255 389 says g x n Y x n
-   gladstone 255 255 405 says g l A d s t o n
 @@ -2164,7 +2165,7 @@ dictionary pnames2 statement 1 width 0 records sound
    grahame 255 255 435 says g r e x m
    grandma 255 255 437 says g r A m a
@@ -204,12 +177,11 @@ index 95fd238..f3a0390 100644
    greenstein 255 255 441 says g r i n s t Y n
    greenwich 255 255 442 says g r E n X C
    greco 255 255 440 says g r E k o
-@@ -2227,12 +2228,12 @@ dictionary pnames2 statement 1 width 0 records sound
+@@ -2227,12 +2228,12 @@ dictionary pnames2 statement 1 width 0 records
    heimlich 255 255 519 says h Y m l I k
    heuer 255 255 532 says h y u R
    hechinger 255 255 518 says h E k X n J R
--  helena 255 255 520 says h x l i n x
-+  helena 255 255 new stress 100 says h E l X n x
+   helena 255 255 520 says h x l i n x
    hemingway 255 255 521 says h E m X G w e
    henrique 255 255 522 says a n r i k e
    hereford 255 255 523 says h E r Xx f x r d
@@ -291,15 +263,6 @@ index 95fd238..f3a0390 100644
    matamoros 255 255 455 says m A t x m o r x s
    matisse 255 255 459 says m a t i s
    mather 255 255 456 says m A D R
-@@ -2799,7 +2800,7 @@ dictionary pnames3 statement 1 width 0 records sound
-   minerals 255 255 545 says m I n R x l z
-   minitel 255 255 546 says m I n x t E l
-   minos 255 255 547 says m i n o s
--  minot 255 255 548 says m i n o
-+  minot 255 255 new stress 10 says m I n X t
-   mindanao 255 255 542 says m I n d x n e o
-   mindy 255 255 543 says m I n d i
-   miramar 255 255 549 says m I r x m a r
 @@ -2939,7 +2940,7 @@ dictionary pnames4 statement 1 width 0 records sound
    mohamed 255 255 4 says m x h a m x d
    mohammad 255 255 5 says m x h a m x d
@@ -363,15 +326,6 @@ index 95fd238..f3a0390 100644
    salam 255 255 551 says s x l a m
    salameh 255 255 552 says s a l x m e
    salazar 255 255 553 says s A l x z a r
-@@ -3475,7 +3476,7 @@ dictionary pnames5 statement 1 width 0 records sound
-   senor 255 255 62 says s E n y c r
-   senora 255 255 63 says s E n y c r x
-   senorita 255 255 64 says s E n y c r i t x
--  sentelle 255 255 65 says s E n t E l
-+  sentelle 255 255 new stress 01 says s X n t E l
-   sepulveda 255 255 67 says s E p a l v I F x
-   sequoia 255 255 68 says s X k O x
-   sera 255 255 69 says s e r a
 @@ -3533,7 +3534,7 @@ dictionary pnames5 statement 1 width 0 records sound
    sonntag 255 255 156 says s a n t x g
    sophia 255 255 157 says s o f i x
