@@ -11,7 +11,7 @@ it processes `.'. Together with no-exclam (0017) nothing IBM did for
 diff --git a/lang/enus/rules/ut_inton.dr b/lang/enus/rules/ut_inton.dr
 --- a/lang/enus/rules/ut_inton.dr
 +++ b/lang/enus/rules/ut_inton.dr
-@@ -1000,5 +1000,7 @@
+@@ -1000,6 +1000,8 @@
    load movw statefld 1546 into r0w
    popn 7
    cmp cmpw statefld 1514 reg r0w

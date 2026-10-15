@@ -1,24 +1,22 @@
-engine: decimal ten-thousandths for rules lifted from 6.1 (Mudb0y 7760e07+followups)
+engine: decimal thousandths for rules lifted from 6.1 (Mudb0y 7760e07)
 
-Ports the VM half of thousandths support, at the current ten-thousandths
-scale: a fifth global-variable kind DG_FIXED (-5, a whole number of
-ten-thousandths in an eight-byte cell), DELTA_FIXED_UNSET (the smallest
-double), delta_fixed_int/delta_int_fixed converters, the delta_muldiv
-helper (a*b/c in 64 bits, rounded or truncated), and the OP_MULDIV
-interpreter op that runs it. The helpers are plain static, not static
-inline: under gnu99 no out-of-line copy is emitted for the latter, and
-a caller the compiler will not inline then fails to link. delta_new / delta_delete / initGlobalVars
-learn the fixed cells, reusing the two words IBM left unused (nfixed
-at 0x000c, fixed at 0x0024). No behaviour change on its own: no rule
-in this tree names a fixed variable yet, and OP_MULDIV is appended
-after OP_FTOL so every existing op keeps its number. Foundation for
-the lifted Finnish, Portuguese and number rules.
+Ports the VM half of "Read the rest of 6.1's compiled shapes, and give
+the machine thousandths": a fifth global-variable kind DG_FIXED (-5, a
+whole number of thousandths in an eight-byte cell), the matching DK_FIXED
+location kind, the delta_muldiv helper (a*b/c in 64 bits, rounded or
+truncated), and the OP_MULDIV interpreter op that runs it. delta_new /
+delta_delete / initGlobalVars learn the fixed cells, reusing the two
+words IBM left unused (nfixed at 0x000c, fixed at 0x0024).
+
+No behaviour change on its own: no rule in this tree names a fixed
+variable yet, and OP_MULDIV is appended after OP_FTOL so every existing
+op keeps its number. It is the foundation the lifted .up rules need.
 
 diff --git a/src/delta/delta.h b/src/delta/delta.h
-index 75d58ee..14f3abb 100644
+index 0000000..0000000 100644
 --- a/src/delta/delta.h
 +++ b/src/delta/delta.h
-@@ -366,11 +366,62 @@ typedef struct {
+@@ -366,11 +366,39 @@ typedef struct {
  /* One global variable of the machine, as the language declared it. Every
     variable lives in the tail of delta_state as a cell: its type tag first,
     then its value, so that a pointer to the value always has the tag just
@@ -28,46 +26,23 @@ index 75d58ee..14f3abb 100644
  #define DG_LONG      (-3)   /* likewise, but the language calls it a long */
  #define DG_SHORT     (-4)   /* a 16-bit value, in a four-byte cell */
  #define DG_COMPOUND  (-9)   /* a run of bytes, described separately */
-+/* What ETI's 6.1 holds as a double, here a whole number of ten-thousandths
-+   in an eight-byte cell: no language IBM shipped declares one, and the
-+   signal path is kept to whole numbers so that a machine with no floating
-+   point can run every language the same. A decimal scale holds the
-+   constants 6.1's rules write exactly, where a binary one would not hold
-+   0.85. Ten-thousandths rather than thousandths because a thousandth was too
-+   coarse for the step 6.1's pitch declines by, which is about 0.0058 and is
-+   multiplied by the step's number before it is raised: held as 0.006 it left
-+   the end of a long sentence 0.7 per cent flat, and as 0.0058 a tenth of a
-+   hertz. The range left is two hundred and fourteen thousand, which a
-+   duration in milliseconds does not reach in three minutes. */
++/* What ETI's 6.1 holds as a double, here a whole number of thousandths in an
++   eight-byte cell: no language IBM shipped declares one, and the signal path
++   is kept to whole numbers so that a machine with no floating point can run
++   every language the same. A thousandth holds every constant 6.1's rules
++   write but a few in set_global_constants exactly, which is why it is a
++   decimal scale rather than a binary one. */
 +#define DG_FIXED     (-5)
-+#define DELTA_FIXED_ONE 10000
-+
-+/* What 6.1 holds in a double nobody has set: the smallest positive double,
-+   which its conversions carry across as a short's 0x8001 and a long's
-+   0x80000001. Here it is one ten-thousandth, which is above nought and below
-+   every number a rule writes, so it compares as 6.1's does. */
-+#define DELTA_FIXED_UNSET 1
-+
-+/* A fixed value to a whole number as cvttsd2si does it, towards nought, and
-+   back. */
-+static int32_t delta_fixed_int(int32_t v)
-+{
-+    return v / DELTA_FIXED_ONE;
-+}
-+
-+static int32_t delta_int_fixed(int32_t v)
-+{
-+    return v * DELTA_FIXED_ONE;
-+}
++#define DELTA_FIXED_ONE 1000
 +
 +/* a * b / c with the product held in sixty-four bits, which is what a rule
-+   lifted from 6.1 does its decimal arithmetic in: a product of fixed values
-+   divided back by DELTA_FIXED_ONE, a quotient multiplied up by it first. Rounded
++   lifted from 6.1 does its decimal arithmetic in: a product of thousandths
++   divided back by a thousand, a quotient multiplied up by one first. Rounded
 +   to the nearest, half away from nought, where the original worked in
 +   doubles; truncated towards nought where it truncated one to a whole
 +   number. A division by nought answers nought, since there is no whole
 +   number for the infinity the original would have held. */
-+static int32_t delta_muldiv(int32_t a, int32_t b, int32_t c, int round)
++static inline int32_t delta_muldiv(int32_t a, int32_t b, int32_t c, int round)
 +{
 +    int64_t n = (int64_t)a * b;
 +    int64_t an = n < 0 ? -n : n;
@@ -82,7 +57,7 @@ index 75d58ee..14f3abb 100644
  
  /* Where the cells start, which is the first byte of delta_state the fields
     above do not name -- so it follows the struct rather than the struct being
-@@ -429,7 +480,10 @@ struct delta_state {
+@@ -429,15 +457,18 @@ struct delta_state {
      int32_t      ncompound;       /* 0x0000 */
      int32_t      nlong;           /* 0x0004 */
      int32_t      nshort;          /* 0x0008 */
@@ -94,7 +69,7 @@ index 75d58ee..14f3abb 100644
      int32_t      nword;           /* 0x0010 */
      /* Where each variable's value is. Nothing outside delta_new knows what
         offset a variable landed at; everything reaches one through these. */
-@@ -437,7 +491,7 @@ struct delta_state {
+     evv_ref     word;            /* 0x0014 */
      evv_ref     compound;     /* 0x0018 */
      evv_ref     lng;             /* 0x001c */
      evv_ref     shrt;            /* 0x0020 */
@@ -103,16 +78,16 @@ index 75d58ee..14f3abb 100644
      evv_ref     sets;            /* 0x0028, the language's lookup sets, one
                                       0x24-byte descriptor each */
      evv_ref     act_table;       /* 0x002c, the dictionary's action table,
-@@ -512,6 +566,7 @@ typedef struct {
+@@ -512,6 +543,7 @@ typedef struct {
  #define DK_SHORT  (-2)
  #define DK_LONG   (-3)
  #define DK_SHORT2 (-4)
-+#define DK_FIXED  (-5)   /* ten-thousandths, as DG_FIXED says */
++#define DK_FIXED  (-5)   /* thousandths, as DG_FIXED says */
  #define DK_SYNC   (-6)
  
  /* A compiled location: what a rule names when it refers to a variable. A
 diff --git a/src/delta/delta_rules.c b/src/delta/delta_rules.c
-index f30d5ba..0fde50c 100644
+index 0000000..0000000 100644
 --- a/src/delta/delta_rules.c
 +++ b/src/delta/delta_rules.c
 @@ -52,7 +52,7 @@ enum {
@@ -145,7 +120,7 @@ index f30d5ba..0fde50c 100644
          int32_t k = delta_rule_imm[get16(p)];
          int32_t v;
 diff --git a/src/eci/bridge/eci_deltaglob.c b/src/eci/bridge/eci_deltaglob.c
-index 705fd86..5f158af 100644
+index 0000000..0000000 100644
 --- a/src/eci/bridge/eci_deltaglob.c
 +++ b/src/eci/bridge/eci_deltaglob.c
 @@ -37,8 +37,8 @@ delta_state *delta_new(void)
@@ -159,7 +134,7 @@ index 705fd86..5f158af 100644
  
      /* The constants go where a value can name them before anything
         can name one. */
-@@ -55,6 +55,7 @@ delta_state *delta_new(void)
+@@ -55,19 +55,22 @@ delta_state *delta_new(void)
      d->compound = EVV_REF(0);
      d->lng = EVV_REF(0);
      d->shrt = EVV_REF(0);
@@ -167,7 +142,7 @@ index 705fd86..5f158af 100644
  
      for (i = 0; i < delta_globals_n; i++)
          switch (delta_globals[i]) {
-@@ -62,12 +63,14 @@ delta_state *delta_new(void)
+         case DG_WORD:     nword++;     break;
          case DG_LONG:     nlong++;     break;
          case DG_SHORT:    nshort++;    break;
          case DG_COMPOUND: ncompound++; break;
@@ -227,7 +202,7 @@ index 705fd86..5f158af 100644
      delta_lang_free(d);
      delta_lang_set(was);
 diff --git a/src/eci/bridge/eci_deltalife.c b/src/eci/bridge/eci_deltalife.c
-index a8414bb..e0b878e 100644
+index 0000000..0000000 100644
 --- a/src/eci/bridge/eci_deltalife.c
 +++ b/src/eci/bridge/eci_deltalife.c
 @@ -111,4 +111,7 @@ void initGlobalVars(delta_state *d)

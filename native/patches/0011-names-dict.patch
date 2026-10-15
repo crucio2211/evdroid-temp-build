@@ -177,20 +177,11 @@ index 95fd238..f3a0390 100644
    greenstein 255 255 441 says g r i n s t Y n
    greenwich 255 255 442 says g r E n X C
    greco 255 255 440 says g r E k o
-@@ -2227,12 +2228,12 @@ dictionary pnames2 statement 1 width 0 records
-   heimlich 255 255 519 says h Y m l I k
-   heuer 255 255 532 says h y u R
-   hechinger 255 255 518 says h E k X n J R
-   helena 255 255 520 says h x l i n x
-   hemingway 255 255 521 says h E m X G w e
-   henrique 255 255 522 says a n r i k e
-   hereford 255 255 523 says h E r Xx f x r d
+@@ -2234,3 +2234,3 @@ dictionary pnames2 statement 1 width 0 records
    herod 255 255 524 says h E r x d
 -  herr 255 255 525 says h R
 +  herr 255 255 525 stress 1 says h e r
    herrmann 255 255 526 says h R m X n
-   hertford 255 255 527 says h a r t f x r d
-   herve 255 255 528 says R v e
 @@ -2301,7 +2302,7 @@ dictionary pnames3 statement 1 width 0 records sound
    infiniti 255 255 35 says X n f I n X t i
    infinitum 255 255 36 says I n f X n Y t x m

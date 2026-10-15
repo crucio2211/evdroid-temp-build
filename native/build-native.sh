@@ -99,27 +99,37 @@ fi
 # What the engine needs before it is right on this architecture. Each is a bug
 # in openevv rather than a change for Android, and each is written up in its
 # own file; the submodule stays as upstream left it.
+#
+# Applied with GNU patch --forward, not git apply: git apply run from
+# inside the engine directory proved untrustworthy here, reporting
+# success while changing nothing (silent "Skipped patch", exit 0) and
+# reporting patches already applied that are not, so most patches never
+# took effect. patch --forward applies what is missing and refuses
+# (nonzero exit) what is already there.
 for patch in "$here"/patches/*.patch; do
 	[ -e "$patch" ] || continue
-	if git -C "$engine" apply --reverse --check "$patch" >/dev/null 2>&1; then
-		echo "already applied $(basename "$patch")"
-		echo "pid=$$ already applied $(basename "$patch")" >>"$trace"
+	if patch_out=$(patch -p1 --forward --silent --directory="$engine" <"$patch" 2>&1); then
+		[ -n "$patch_out" ] && echo "$patch_out"
+		echo "applied $(basename "$patch")"
+		echo "pid=$$ applied $(basename "$patch")" >>"$trace"
 		continue
 	fi
-	if ! git -C "$engine" apply --whitespace=nowarn "$patch"; then
-		# Two builds racing here both see it unapplied and both try it. The
-		# loser has nothing left to do rather than nothing to say.
-		if git -C "$engine" apply --reverse --check "$patch" >/dev/null 2>&1; then
-			echo "pid=$$ race-skipped $(basename "$patch")" >>"$trace"
+	case "$patch_out" in
+		*"previously applied"*|*"Skipping patch"*|*"already applied"*|*"Reversed"*)
+			# Two builds racing here both try it; the loser finds the
+			# winner's result instead of a place to work.
+			echo "already applied $(basename "$patch")"
+			echo "pid=$$ already applied $(basename "$patch")" >>"$trace"
+			find "$engine" -name '*.rej' -delete
 			continue
-		fi
-		echo "could not apply $(basename "$patch") to native/openevv" >&2
-		echo "pid=$$ FAILED $(basename "$patch")" >>"$trace"
-		exit 1
-	fi
-	echo "applied $(basename "$patch")"
-	echo "pid=$$ applied $(basename "$patch")" >>"$trace"
+			;;
+	esac
+	echo "$patch_out" >&2
+	echo "could not apply $(basename "$patch") to native/openevv" >&2
+	echo "pid=$$ FAILED $(basename "$patch")" >>"$trace"
+	exit 1
 done
+find "$engine" -name '*.rej' -delete
 { echo "=== pid=$$ patch loop done"; trace_dict_state "post-patch"; } >>"$trace" 2>&1
 
 # Bake the dictionaries' text into the rules before compiling: dict.py reads
