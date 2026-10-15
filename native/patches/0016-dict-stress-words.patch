@@ -1,0 +1,23 @@
+dict: read stress specs on new words (Mudb0y read half)
+
+A new word may name its stress between its action and what it says
+(`annan 255 255 new stress 10 says ...'): read past the spec and the
+pronunciation after it, recording the pattern beside the word. Applying
+a recorded pattern to an arm (arms/newarm set_stress) is not ported, so
+a word keeps the stress the rules give it; its phones bake as written.
+Without this, any new word with a stress spec fails the bake with
+"a new word has to say something".
+
+diff --git a/tools/module/dict.py b/tools/module/dict.py
+--- a/tools/module/dict.py
++++ b/tools/module/dict.py
+@@ -207,3 +207,8 @@ def read_file():
+         action = None if f[3] == 'new' else int(f[3])
+-        text = ' '.join(f[5:]) if len(f) > 4 and f[4] == 'says' else None
++        rest = f[4:]
++        if len(rest) >= 2 and rest[0] == 'stress':
++            dicts[-1].setdefault('stress', {})[len(dicts[-1]['entries'])] = \
++                rest[1]
++            rest = rest[2:]
++        text = ' '.join(rest[1:]) if rest and rest[0] == 'says' else None
+         dicts[-1]['entries'].append((word, left, right, action, text))
