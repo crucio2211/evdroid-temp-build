@@ -103,7 +103,7 @@ jobs:
 
       - name: TEMP check baked words
         run: |
-          grep -n -E "^  (encourage|mutual|annan|biogen) " native/openevv/lang/enus/enus.dict || echo "WORDS NOT IN TEXT"
+          ls native/patches/ | tr "\n" " "; echo; echo "---engine-status---"; git -C native/openevv status --short | head -20; echo "---words---"; grep -n -E "^  (encourage|mutual|annan|biogen|celtics) " native/openevv/lang/enus/enus.dict || echo "WORDS NOT IN TEXT"
 
       - name: Upload the APK
         uses: actions/upload-artifact@v4
