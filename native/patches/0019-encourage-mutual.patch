@@ -1,0 +1,22 @@
+dict: encourage and mutual readings as asked
+
+encourage takes the asked phones with second-syllable stress, in
+roots1b where it collates; mutual returns with the asked phones and
+the rules' stress. Both take action `new' so the bake mints each a
+dedicated arm.
+
+diff --git a/lang/enus/enus.dict b/lang/enus/enus.dict
+--- a/lang/enus/enus.dict
++++ b/lang/enus/enus.dict
+@@ -2999,4 +2999,5 @@
+   musgrave 255 255 70 says m H s g r e v
+   mustafa 255 255 71 says m u s t a f x
++  mutual 255 255 new says m y u C w x l
+   mrazek 255 255 55 says m r a z E k
+   myanmar 255 255 73 says m y a n m a r
+@@ -4259,4 +4259,5 @@
+   enumerable 255 255 90 says X n u m x r x b x l
+   enumere 255 255 89 says X n u m x r
++  encourage 255 255 new stress 010 says X n k x r r X J
+   encore 255 255 76 says a@ G k c r
+   enclave 255 255 75 says a n k l e v
