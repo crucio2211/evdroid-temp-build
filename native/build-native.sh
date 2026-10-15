@@ -42,6 +42,22 @@ if [ -n "$lockdir" ]; then
 	trap 'rmdir "$lockdir" 2>/dev/null || true' EXIT
 fi
 
+# TEMPORARY ground-truth trace (diagnosing dictionary bake races). Gradle
+# captures task stdout in bursts and can drop or interleave lines when two
+# buildNative tasks run at once, so the log alone cannot say how many runs
+# happened or what each saw. This file is append-only and is read back by
+# a later, sequential workflow step. Revert before shipping.
+trace="$root/NATIVE-BUILD-TRACE.txt"
+trace_dict_state() {
+	echo "--- $1 pid=$$ here=$here date=$(date -u +%FT%TZ)"
+	md5sum "$engine/lang/enus/enus.dict" 2>/dev/null || md5 "$engine/lang/enus/enus.dict" 2>/dev/null || true
+	echo "new-count=$(grep -c ' 255 255 new' "$engine/lang/enus/enus.dict" || true)"
+	grep -n -e '  mutual 255' -e '  encourage 255' -e '  celtics 255' -e '  annan 255' -e '  biogen 255' "$engine/lang/enus/enus.dict" || echo "WORDS NOT IN TEXT"
+	git -C "$engine" status --short | head -20
+	ls -lad "$here/.build-native.lock" 2>/dev/null || echo "no lockdir visible"
+}
+{ echo "=== BEGIN pid=$$ ABIS=$ABIS LANGS=$LANGS"; trace_dict_state "pre-patch"; } >>"$trace" 2>&1
+
 NDK=${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}
 if [ -z "$NDK" ]; then
 	echo "set ANDROID_NDK_HOME to an NDK r23 or later" >&2
@@ -87,19 +103,24 @@ for patch in "$here"/patches/*.patch; do
 	[ -e "$patch" ] || continue
 	if git -C "$engine" apply --reverse --check "$patch" >/dev/null 2>&1; then
 		echo "already applied $(basename "$patch")"
+		echo "pid=$$ already applied $(basename "$patch")" >>"$trace"
 		continue
 	fi
 	if ! git -C "$engine" apply --whitespace=nowarn "$patch"; then
 		# Two builds racing here both see it unapplied and both try it. The
 		# loser has nothing left to do rather than nothing to say.
 		if git -C "$engine" apply --reverse --check "$patch" >/dev/null 2>&1; then
+			echo "pid=$$ race-skipped $(basename "$patch")" >>"$trace"
 			continue
 		fi
 		echo "could not apply $(basename "$patch") to native/openevv" >&2
+		echo "pid=$$ FAILED $(basename "$patch")" >>"$trace"
 		exit 1
 	fi
 	echo "applied $(basename "$patch")"
+	echo "pid=$$ applied $(basename "$patch")" >>"$trace"
 done
+{ echo "=== pid=$$ patch loop done"; trace_dict_state "post-patch"; } >>"$trace" 2>&1
 
 # Bake the dictionaries' text into the rules before compiling: dict.py reads
 # the generated rule code and rewrites arms and records out of the .dict
@@ -107,9 +128,12 @@ done
 # changes to bake; the other languages' dictionaries are untouched.
 make -C "$engine" -f Makefile rulecode LANGS="$LANGS"
 if command -v python3 >/dev/null 2>&1; then
-	( cd "$engine" && EVV_LANG_DIR=lang/enus python3 tools/module/dict.py build )
+	bake_log=$( ( cd "$engine" && EVV_LANG_DIR=lang/enus python3 tools/module/dict.py build ) 2>&1 )
+	echo "$bake_log"
+	{ echo "=== pid=$$ bake output:"; echo "$bake_log"; trace_dict_state "post-bake"; } >>"$trace" 2>&1
 else
 	echo "no python3: dictionaries stay as last baked" >&2
+	echo "pid=$$ no python3, bake skipped" >>"$trace"
 fi
 
 # The bake mints arms for new words into the rule text; compile them too,
@@ -215,4 +239,5 @@ for abi in $ABIS; do
 	ls -l "$OUT/$abi/libevvjni.so"
 done
 
+{ echo "=== pid=$$ all ABIs done"; trace_dict_state "final"; } >>"$trace" 2>&1
 echo "native libraries are under $OUT"
