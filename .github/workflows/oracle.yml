@@ -145,7 +145,7 @@ jobs:
         run: |
           bin="./build/phonemes-enus"
           [ -x "$bin" ] || bin="./build/phonemes"
-          for case in 'hey! listen' 'listen hey!' 'hey!' 'hey? listen' 'hey. listen'; do
+          for case in 'hey! listen' 'listen hey!' 'hey!' 'hey? listen' 'hey. listen' 'hey! listen hey!' 'hey. listen hey.'; do
             echo "== $case"
             printf '%s\n' "$case" > /tmp/one.txt
             "$bin" /tmp/one.txt 2>&1 | grep -E "# (exclam|question|period|comma)_phrase dispatches" | sort | uniq -c
