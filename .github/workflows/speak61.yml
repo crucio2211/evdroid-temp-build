@@ -36,7 +36,7 @@ jobs:
         run: |
           mkdir -p /tmp/sp61 && cd /tmp/sp61
           cp /tmp/eci.ini ./eci.ini
-          for t in "Hello world!" "Hello world." "Hey!" "Hey."; do
+          for t in "Hello world!" "Hello world." "Hey!" "Hey." "Hello!" "Hello." "I went home!" "I went home."; do
             n=$(echo "$t" | tr -dc 'A-Za-z!.?' | tr 'A-Z' 'a-z' | tr '!.' 'bd')
             echo "=== $t -> $n ==="
             /tmp/speak /tmp/eloq/lib/eci.so "$t"
