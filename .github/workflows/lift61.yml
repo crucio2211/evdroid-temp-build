@@ -60,9 +60,10 @@ jobs:
           chmod +x "$HOME/bin/llvm-lipo"
           export PATH="$HOME/bin:$PATH"
           cd /tmp/upstream/tools/module
-          for w in hey hello world encourage mutual; do
-            echo "=== 6.1 [$w] ==="
-            python3 lexicon64.py /tmp/enu-x64.dylib "$w" 2>&1 | head -20
+          python3 lexicon64.py /tmp/enu-x64.dylib 2>&1 | head -30
+          for d in roots main names token abbr; do
+            echo "=== 6.1 dict [$d] hey/hello ==="
+            python3 lexicon64.py /tmp/enu-x64.dylib "$d" 2>&1 | grep -i -e hey -e hello || echo "(none)"
           done
 
       - name: Upload the lifted rules
