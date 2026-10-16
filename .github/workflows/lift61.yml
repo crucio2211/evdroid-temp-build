@@ -74,6 +74,8 @@ jobs:
           awk '/set_phrase_defaults>:/{on=1} on{print NR": "$0; n++} n>400{exit}' /tmp/full.asm | grep -n 'lea' | head -20
           echo "=== window 40215-40275 ==="
           sed -n '40215,40275p' /tmp/full.asm
+          echo "=== all imm-to-state stores in set_phrase_defaults ==="
+          awk '/<_set_phrase_defaults>:/{on=1} on{print} /<_said_phrase>:/{if (on) exit}' /tmp/full.asm | grep -E 'mov[wlq]? +\$0x[0-9a-f]+, 0x[0-9a-f]+\(%rbx\)' | head -100
 
       - name: Upload the lifted rules
         uses: actions/upload-artifact@v4
