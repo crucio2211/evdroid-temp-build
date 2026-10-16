@@ -77,14 +77,6 @@ static const Hetero words[] = {
     { "digest",     0,                    "`[.0dX.1JEst]"        },
     { "export",     0,                    "`[.0Ek.1spcrt]"       },
     { "exports",    0,                    "`[.0Ek.1spcrts]"      },
-    { "produce",    "`[.1pro.0dus]",      0                      },
-    { "quality",    "`[kw1clIti]",         0                      },
-    { "qualities",  "`[kw1clItiz]",        0                      },
-    { "persona",    "`[pxrs1onx]",         0                      },
-    { "personas",   "`[pxrs1onxz]",        0                      },
-    { "address",    "`[xdr1Es]",           0                      },
-    { "addresses",  "`[xdr1Esz]",          0                      },
-    { "jose",       "`[hoz1e]",            0                      },
     { "transfer",   0,                    "`[.0trAns.1fR]"       },
     { "transfers",  0,                    "`[.0trAns.1fRz]"      },
     { "transplant", 0,                    "`[.0trAnz.1plAnt]"    },
@@ -93,6 +85,26 @@ static const Hetero words[] = {
 };
 
 #define WORDS (int)(sizeof words / sizeof words[0])
+
+/* Words always said one way, whatever stands around them. Unlike the
+   heteronyms above these consult no grammar: the reading given here is
+   written in the word's place every time the heteronym table leaves it
+   alone. Whole words only, so that an inflection keeps its own ending
+   for the rules to read. The readings are annotations in ETI spellings
+   and are honoured literally when they match, stress marks and all --
+   the oracle answers persona [.0pXr.1so.0na] mark for mark. */
+typedef struct {
+    const char *word;
+    const char *say;      /* the annotation written in its place */
+} Forced;
+
+static const Forced forced[] = {
+    { "produce",   "`[.0pro.1du.0Te]" },
+    { "persona",   "`[.0pXr.1so.0na]" },
+    { "personas",  "`[.0pXr.1so.0naz]" },
+};
+
+#define FORCED (int)(sizeof forced / sizeof forced[0])
 
 /* What the word before says about what this one is.
  *
@@ -127,8 +139,12 @@ static int among(const char *word, size_t n, const char *const *list)
 
 static int is_word_byte(char c)
 {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
-        || (c >= '0' && c <= '9') || c == '\'';
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+        || (c >= '0' && c <= '9') || c == '\'')
+        return 1;
+    /* High bytes too, so a word holding an enye stays one token for the
+       matching below. ASCII text is unaffected. */
+    return (unsigned char)c >= 0x80;
 }
 
 /* Which of the table this word is, or -1. */
@@ -139,6 +155,19 @@ static int which(const char *at, size_t n)
     for (i = 0; i < WORDS; i++)
         if (strlen(words[i].word) == n
             && strncasecmp(words[i].word, at, n) == 0)
+            return i;
+    return -1;
+}
+
+/* Which of the forced words this word is, or -1. Whole words only, so
+   that an inflection keeps its own ending for the rules to read. */
+static int which_forced(const char *at, size_t n)
+{
+    int i;
+
+    for (i = 0; i < FORCED; i++)
+        if (strlen(forced[i].word) == n
+            && strncasecmp(forced[i].word, at, n) == 0)
             return i;
     return -1;
 }
@@ -174,6 +203,12 @@ static size_t room_for(const char *text)
             most = a;
         if (b > most)
             most = b;
+    }
+    for (i = 0; i < FORCED; i++) {
+        size_t a = strlen(forced[i].say);
+
+        if (a > most)
+            most = a;
     }
     return strlen(text) * (most + 2) + 1;
 }
@@ -215,6 +250,18 @@ char *hetero_rewrite(const char *text)
                 say = words[w].verb;
 
             if (say != 0) {
+                memcpy(out + at, say, strlen(say));
+                at += strlen(say);
+                continue;
+            }
+        }
+        /* The table left it alone: a forced word is said as written. */
+        {
+            int f = which_forced(start, n);
+
+            if (f >= 0) {
+                const char *say = forced[f].say;
+
                 memcpy(out + at, say, strlen(say));
                 at += strlen(say);
                 continue;

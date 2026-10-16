@@ -524,8 +524,7 @@ static void step(interp *st)
         if (at != 0)
             memcpy(at, &v, (size_t)w);
         if (delta_rule_trace > 1)
-            fprintf(stderr, "# store %d at %08x = %08x\n", w,
-                    (unsigned)(size_t)at, (unsigned)v);
+            fprintf(stderr, "# store %d %s = %08x\n", w, delta_rule_here ? delta_rule_here->name : "?", (unsigned)v);
         break;
     }
 

@@ -162,6 +162,262 @@ uint8_t enus_evv_authored_data[] = {
     2,
     /* say_071b, 2 bytes at 130 */
     7,27,
+    /* eti_s_1b9176, 1 bytes at 132 */
+    54,
+    /* eti_s_1b917a, 1 bytes at 133 */
+    63,
+    /* eti_s_1b917f, 1 bytes at 134 */
+    70,
+    /* eti_s_1b9180, 1 bytes at 135 */
+    71,
+    /* eti_s_1b9181, 1 bytes at 136 */
+    72,
+    /* eti_s_1b9182, 2 bytes at 137 */
+    53,53,
+    /* eti_s_1b9184, 1 bytes at 139 */
+    2,
+    /* eti_s_1b9185, 1 bytes at 140 */
+    29,
+    /* eti_s_1b9186, 1 bytes at 141 */
+    26,
+    /* eti_s_1b9187, 1 bytes at 142 */
+    65,
+    /* eti_s_1b9188, 11 bytes at 143 */
+    72,2,29,26,2,21,25,3,4,21,72,
+    /* eti_s_1b91bf, 2 bytes at 154 */
+    199,72,
+    /* eti_s_1be0f8, 1 bytes at 156 */
+    53,
+    /* eti_s_1be0f9, 1 bytes at 157 */
+    85,
+    /* eti_s_1be0fa, 1 bytes at 158 */
+    164,
+    /* eti_s_1be0fb, 3 bytes at 159 */
+    7,10,45,
+    /* eti_s_1be0fe, 1 bytes at 162 */
+    72,
+    /* eti_s_1be0ff, 3 bytes at 163 */
+    46,47,36,
+    /* eti_s_1be102, 1 bytes at 166 */
+    46,
+    /* eti_s_1be103, 1 bytes at 167 */
+    25,
+    /* eti_s_1be104, 2 bytes at 168 */
+    26,15,
+    /* eti_s_1be106, 3 bytes at 170 */
+    10,46,34,
+    /* eti_s_1be109, 3 bytes at 173 */
+    33,34,42,
+    /* eti_s_1be10c, 3 bytes at 176 */
+    6,10,34,
+    /* eti_s_1be10f, 3 bytes at 179 */
+    37,39,34,
+    /* eti_s_1be112, 3 bytes at 182 */
+    46,36,34,
+    /* eti_s_1be115, 2 bytes at 185 */
+    10,46,
+    /* eti_s_1be117, 2 bytes at 187 */
+    33,6,
+    /* eti_s_1be119, 1 bytes at 189 */
+    34,
+    /* eti_s_1be11a, 1 bytes at 190 */
+    42,
+    /* eti_s_1be11b, 2 bytes at 191 */
+    6,10,
+    /* eti_s_1be11d, 2 bytes at 193 */
+    37,39,
+    /* eti_s_1be11f, 1 bytes at 195 */
+    33,
+    /* eti_s_1be120, 1 bytes at 196 */
+    6,
+    /* eti_s_1be121, 2 bytes at 197 */
+    42,52,
+    /* eti_s_1be123, 1 bytes at 199 */
+    70,
+    /* eti_s_1be124, 2 bytes at 200 */
+    85,71,
+    /* eti_s_1be126, 2 bytes at 202 */
+    34,42,
+    /* eti_s_1be128, 1 bytes at 204 */
+    65,
+    /* eti_s_1be129, 1 bytes at 205 */
+    64,
+    /* eti_s_1be12a, 1 bytes at 206 */
+    63,
+    /* eti_s_1be12b, 1 bytes at 207 */
+    26,
+    /* eti_s_1be12c, 1 bytes at 208 */
+    47,
+    /* eti_s_1be12d, 7 bytes at 209 */
+    16,4,5,25,1,21,13,
+    /* eti_s_1be134, 1 bytes at 216 */
+    20,
+    /* eti_s_1be135, 1 bytes at 217 */
+    41,
+    /* eti_s_1be136, 1 bytes at 218 */
+    11,
+    /* eti_s_1be137, 1 bytes at 219 */
+    32,
+    /* eti_s_1be138, 1 bytes at 220 */
+    24,
+    /* eti_s_1be139, 6 bytes at 221 */
+    3,19,19,3,4,21,
+    /* eti_s_1be13f, 8 bytes at 227 */
+    47,37,9,10,46,6,42,34,
+    /* eti_s_1be147, 2 bytes at 235 */
+    47,45,
+    /* eti_s_1be149, 6 bytes at 237 */
+    8,40,40,8,9,42,
+    /* eti_s_1be14f, 1 bytes at 243 */
+    21,
+    /* eti_s_1be150, 2 bytes at 244 */
+    26,21,
+    /* eti_s_1be152, 8 bytes at 246 */
+    72,20,3,19,19,3,4,21,
+    /* eti_s_1be15a, 8 bytes at 254 */
+    72,11,3,19,19,3,4,21,
+    /* eti_s_1be162, 9 bytes at 262 */
+    72,26,24,3,19,19,3,4,21,
+    /* eti_s_1be16b, 6 bytes at 271 */
+    20,3,21,5,25,72,
+    /* eti_s_1be171, 2 bytes at 277 */
+    53,53,
+    /* eti_s_1be173, 4 bytes at 279 */
+    31,2,24,4,
+    /* eti_s_1be177, 1 bytes at 283 */
+    54,
+    /* eti_s_1be178, 3 bytes at 284 */
+    28,5,21,
+    /* eti_s_1be17b, 2 bytes at 287 */
+    53,54,
+    /* eti_s_1be17d, 5 bytes at 289 */
+    72,1,21,13,72,
+    /* eti_s_1be182, 1 bytes at 294 */
+    22,
+    /* eti_s_1be183, 3 bytes at 295 */
+    25,26,15,
+    /* eti_s_1be186, 3 bytes at 298 */
+    46,26,15,
+    /* eti_s_1be189, 8 bytes at 301 */
+    199,72,13,4,19,19,1,24,
+    /* eti_s_1be191, 7 bytes at 309 */
+    199,72,22,4,5,21,13,
+    /* eti_s_1be198, 6 bytes at 316 */
+    199,72,2,5,24,4,
+    /* eti_s_1be19e, 2 bytes at 322 */
+    199,25,
+    /* eti_s_1be1a0, 10 bytes at 324 */
+    199,72,25,26,2,24,19,3,21,15,
+    /* eti_s_1be1aa, 9 bytes at 334 */
+    199,72,30,5,2,72,2,25,25,
+    /* eti_s_1be1b3, 12 bytes at 343 */
+    199,72,1,5,25,26,24,1,19,3,1,21,
+    /* eti_s_1be1bf, 10 bytes at 355 */
+    199,72,12,1,21,1,13,3,1,21,
+    /* eti_s_1be1c9, 11 bytes at 365 */
+    199,72,25,3,21,15,1,22,4,24,2,
+    /* eti_s_1be1d4, 11 bytes at 376 */
+    199,72,16,4,21,15,72,18,4,21,15,
+    /* eti_s_1be1df, 13 bytes at 387 */
+    199,72,21,2,28,72,31,2,1,19,1,21,13,
+    /* eti_s_1be1ec, 6 bytes at 400 */
+    199,72,12,2,21,26,
+    /* eti_s_1be1f2, 7 bytes at 406 */
+    199,72,22,2,21,12,2,
+    /* eti_s_1be1fb, 2 bytes at 413 */
+    21,3,
+    /* eti_s_1be1fd, 1 bytes at 415 */
+    4,
+    /* eti_s_1be1fe, 3 bytes at 416 */
+    1,21,13,
+    /* eti_s_1be201, 2 bytes at 419 */
+    26,4,
+    /* eti_s_1be203, 2 bytes at 421 */
+    4,24,
+    /* eti_s_1be205, 4 bytes at 423 */
+    72,26,4,72,
+    /* eti_s_1be209, 2 bytes at 427 */
+    64,72,
+    /* eti_s_1be20b, 3 bytes at 429 */
+    21,2,2,
+    /* eti_s_1be20e, 2 bytes at 432 */
+    199,2,
+    /* eti_s_1be339, 6 bytes at 434 */
+    72,22,4,3,21,26,
+    /* hyphen_mark, 1 bytes at 440 */
+    63,
+    /* month_Apr, 3 bytes at 441 */
+    6,22,24,
+    /* month_April, 5 bytes at 444 */
+    1,22,24,3,19,
+    /* month_Aug, 3 bytes at 449 */
+    6,5,15,
+    /* month_August, 6 bytes at 452 */
+    1,5,15,5,25,26,
+    /* month_Dec, 3 bytes at 458 */
+    34,2,12,
+    /* month_December, 8 bytes at 461 */
+    13,2,12,2,20,11,2,24,
+    /* month_Feb, 3 bytes at 469 */
+    35,2,11,
+    /* month_february, 8 bytes at 472 */
+    14,2,11,24,5,1,24,30,
+    /* month_Jan, 3 bytes at 480 */
+    38,1,21,
+    /* month_January, 7 bytes at 483 */
+    17,1,21,5,1,24,30,
+    /* month_Jul, 3 bytes at 490 */
+    38,5,19,
+    /* month_July, 4 bytes at 493 */
+    17,5,19,30,
+    /* month_Jun, 3 bytes at 497 */
+    38,5,21,
+    /* month_June, 4 bytes at 500 */
+    17,5,21,2,
+    /* month_Mar, 3 bytes at 504 */
+    41,1,24,
+    /* month_March, 5 bytes at 507 */
+    20,1,24,12,16,
+    /* month_May, 3 bytes at 512 */
+    41,1,30,
+    /* month_Nov, 3 bytes at 515 */
+    42,4,27,
+    /* month_november, 8 bytes at 518 */
+    21,4,27,2,20,11,2,24,
+    /* month_Oct, 3 bytes at 526 */
+    9,12,26,
+    /* month_October, 7 bytes at 529 */
+    4,12,26,4,11,2,24,
+    /* month_Sep, 3 bytes at 536 */
+    46,2,22,
+    /* month_Sept, 4 bytes at 539 */
+    46,2,22,26,
+    /* month_september, 9 bytes at 543 */
+    25,2,22,26,2,20,11,2,24,
+    /* month_February, 8 bytes at 552 */
+    35,2,11,24,5,1,24,30,
+    /* month_November, 8 bytes at 560 */
+    42,4,27,2,20,11,2,24,
+    /* month_September, 9 bytes at 568 */
+    46,2,22,26,2,20,11,2,24,
+    /* month_april, 5 bytes at 577 */
+    1,22,24,3,19,
+    /* month_august, 6 bytes at 582 */
+    1,5,15,5,25,26,
+    /* month_december, 8 bytes at 588 */
+    13,2,12,2,20,11,2,24,
+    /* month_january, 7 bytes at 596 */
+    17,1,21,5,1,24,30,
+    /* month_july, 4 bytes at 603 */
+    17,5,19,30,
+    /* month_june, 4 bytes at 607 */
+    17,5,21,2,
+    /* month_march, 5 bytes at 611 */
+    20,1,24,12,16,
+    /* month_november, 8 bytes at 616 */
+    21,4,27,2,20,11,2,24,
+    /* month_october, 7 bytes at 624 */
+    4,12,26,4,11,2,24,
 };
 
 const delta_store enus_delta_authored_store[] = {

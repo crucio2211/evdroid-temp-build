@@ -1020,6 +1020,19 @@ class Arms:
         except newarm.CannotWrite as e:
             raise ValueError('%s: %s' % (self.name, e))
 
+    def set_stress(self, act, stress):
+        """Where one action's word is stressed, or with None, leave it to the
+        rules. tools/rules/newarm.py says how the pattern is written."""
+        try:
+            newarm.set_stress(TREE, self.name, act, stress)
+        except newarm.CannotWrite as e:
+            raise ValueError('%s: %s' % (self.name, e))
+
+    def stresses(self):
+        """The stress pattern each action's own arm stores, where it stores
+        one."""
+        return newarm.stresses(TREE, self.name)
+
     def rewrite_parts(self, act, datas):
         """Change what an action laid down in pieces. Each piece is its own
         record and is changed on its own; a piece the wrapper names rather
