@@ -62,14 +62,14 @@ jobs:
         working-directory: native/openevv
         run: |
           python3 -c "
+          import re
           p = 'src/delta/delta_rules.c'
           s = open(p).read()
-          old = '''            fprintf(stderr, \"# store %d at %08x = %08x\\\\n\", w,
-                      (unsigned)(size_t)at, (unsigned)v);'''
-          new = '''            fprintf(stderr, \"# store %d %s = %08x\\\\n\", w,
-                      delta_rule_here ? delta_rule_here->name : \"?\", (unsigned)v);'''
-          assert old in s, 'trace pattern not found'
-          open(p, 'w').write(s.replace(old, new))
+          pat = re.compile(r'fprintf\(stderr, \"# store %d at %08x = %08x\\\\n\", w,\s*\(unsigned\)\(size_t\)at, \(unsigned\)v\);')
+          rep = 'fprintf(stderr, \"# store %d %s = %08x\\\\n\", w, delta_rule_here ? delta_rule_here->name : \"?\", (unsigned)v);'
+          s2, n = pat.subn(rep, s)
+          assert n == 1, 'pattern count %d' % n
+          open(p, 'w').write(s2)
           print('store trace now names the rule')
           "
 
