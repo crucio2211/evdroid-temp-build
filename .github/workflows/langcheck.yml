@@ -58,10 +58,10 @@ jobs:
       - name: TEMP force exclam stores (experiment, not shipped)
         working-directory: native/openevv
         run: |
-          f=lang/enus/rules/ut_inton.dr
-          grep -n 'load movw ind reg r6 2048 into r0w' "$f" | head -8
-          sed -i '4357s/branch jne to L1/cmp testl reg r0 reg r0/;4381s/branch jne to L7/cmp testl reg r0 reg r0/;4390s/branch jne to L7/cmp testl reg r0 reg r0/;4391s/load movw ind reg r6 2048 into r0w/load movw imm 200 into r0w/' "$f"
-          sed -n '4387,4395p' "$f"
+          f=lang/enus/rules/u_integ.dr
+          grep -n 'load movw ind reg r6 3386 into r0w' "$f" | head -5
+          sed -i '4703s/load movw ind reg r6 3386 into r0w/load movw imm 9999 into r0w/' "$f"
+          sed -n '4703,4706p' "$f"
 
       - name: Build the phonemes harness
         working-directory: native/openevv
