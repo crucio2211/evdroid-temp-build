@@ -74,6 +74,11 @@ jobs:
           bin="./build/phonemes-$tag"
           [ -x "$bin" ] || bin="./build/phonemes"
           "$bin" "../accent-cases-$tag.txt" || echo "no cases file, probe only"
+          for c in 'hey!' 'hey.' 'hey?'; do
+            echo "== anno [$c] =="
+            printf '%s\n' "$c" > /tmp/anno.txt
+            EVV_HETERO=on EVV_ANNO=1 "$bin" /tmp/anno.txt 2>&1 | head -30
+          done
 
       - name: TEMP dict bake like APK
         working-directory: native/openevv
