@@ -66,6 +66,12 @@ jobs:
             python3 lexicon64.py /tmp/enu-x64.dylib "$d" 2>&1 | grep -i -e hey -e hello -e world -e encourage -e mutual || echo "(none)"
           done
 
+      - name: Disassemble set_phrase_defaults around its hole
+        run: |
+          llvm-objdump -d --no-show-raw-insn --disassemble-symbols=set_phrase_defaults /tmp/enu-x64.dylib > /tmp/spd.asm 2>&1 || llvm-objdump -d --no-show-raw-insn /tmp/enu-x64.dylib | awk '/<.?set_phrase_defaults>:/{on=1} on{print} on && /^$/{c++; if (c>1) exit}' > /tmp/spd.asm
+          wc -l /tmp/spd.asm
+          grep -n 'lea' /tmp/spd.asm | head -20
+
       - name: Upload the lifted rules
         uses: actions/upload-artifact@v4
         with:
