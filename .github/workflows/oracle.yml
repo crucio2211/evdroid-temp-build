@@ -173,7 +173,7 @@ jobs:
           grep -E '^# store' /tmp/stores-dot.txt | grep -E '= 0000[0-9a-f]{4}$' > /tmp/sd.seq || true
           echo "== intonation-rule stores only =="
           for f in sb sd; do
-            grep -E '# store [24] (mark_nuclear_accent|get_nuclear_accent|nucl_f0|eng_nucl_high_tone|eng_nucl_low_tone|nucl_high_tone|nucl_low_tone|insert_f0|generate_intonation|exclam_phrase|question_phrase|period_phrase|comma_phrase|set_f0_range_ptrs|adjust_accents|adjust_eng_accents|word_accent_anno|insert_phrase_pause|build_phrase_final_structure|build_phrases|assign_sent_final_features|assign_major_phr_features|add_f0_for_next_voice|end_of_sentence|delimit_sentence|mark_word_categories|find_eng_nucleus|pf_word_final_syll|adjust_final_y|eng_phrase_level_rules) =' "/tmp/$f.seq" > "/tmp/$f.inton" || true
+            grep -E '# store [24] (mark_nuclear_accent|get_nuclear_accent|nucl_f0|eng_nucl_high_tone|eng_nucl_low_tone|nucl_high_tone|nucl_low_tone|insert_f0|generate_intonation|exclam_phrase|question_phrase|period_phrase|comma_phrase|set_f0_range_ptrs|adjust_accents|adjust_eng_accents|word_accent_anno|insert_phrase_pause|build_phrase_final_structure|build_phrases|assign_sent_final_features|assign_major_phr_features|add_f0_for_next_voice|delimit_sentence|mark_word_categories|find_eng_nucleus|pf_word_final_syll|adjust_final_y|eng_phrase_level_rules) =' "/tmp/$f.seq" > "/tmp/$f.inton" || true
           done
           wc -l /tmp/sb.inton /tmp/sd.inton
           diff /tmp/sd.inton /tmp/sb.inton | head -80 || true
