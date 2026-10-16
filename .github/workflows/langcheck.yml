@@ -55,11 +55,6 @@ jobs:
           done
           find native/openevv \( -name '*.rej' -o -name '*.orig' \) -delete
 
-      - name: TEMP force exclam stores (experiment, not shipped)
-        working-directory: native/openevv
-        run: |
-          python3 "$GITHUB_WORKSPACE/.github/scripts/force-gate.py"
-
       - name: Build the phonemes harness
         working-directory: native/openevv
         run: make phonemes-bin LANGS="${{ inputs.lang }}" RULES="bytecode" OPT="-O2 -g" -j"$(nproc)"

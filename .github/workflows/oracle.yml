@@ -58,11 +58,6 @@ jobs:
           done
           find native/openevv \( -name '*.rej' -o -name '*.orig' \) -delete
 
-      - name: TEMP rule-attributed store trace (experiment, not shipped)
-        working-directory: native/openevv
-        run: |
-          python3 "$GITHUB_WORKSPACE/.github/scripts/name-rule-trace.py"
-
       - name: Build the phonemes harness
         working-directory: native/openevv
         run: make phonemes-bin LANGS="${{ inputs.lang }}" RULES="bytecode" -j"$(nproc)"
