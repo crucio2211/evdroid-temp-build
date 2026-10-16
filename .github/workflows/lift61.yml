@@ -68,9 +68,10 @@ jobs:
 
       - name: Disassemble set_phrase_defaults around its hole
         run: |
-          llvm-objdump -d --no-show-raw-insn --disassemble-symbols=set_phrase_defaults /tmp/enu-x64.dylib > /tmp/spd.asm 2>&1 || llvm-objdump -d --no-show-raw-insn /tmp/enu-x64.dylib | awk '/<.?set_phrase_defaults>:/{on=1} on{print} on && /^$/{c++; if (c>1) exit}' > /tmp/spd.asm
-          wc -l /tmp/spd.asm
-          grep -n 'lea' /tmp/spd.asm | head -20
+          llvm-objdump -d --no-show-raw-insn /tmp/enu-x64.dylib > /tmp/full.asm 2>&1; echo "objdump exit=$?"
+          wc -l /tmp/full.asm
+          grep -n 'set_phrase_defaults' /tmp/full.asm | head -10
+          awk '/set_phrase_defaults>:/{on=1} on{print NR": "$0; n++} n>400{exit}' /tmp/full.asm | grep -n 'lea' | head -20
 
       - name: Upload the lifted rules
         uses: actions/upload-artifact@v4
