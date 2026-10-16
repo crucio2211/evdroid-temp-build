@@ -153,7 +153,20 @@ jobs:
           done
           echo "== small-value stores, one process, three marks (stable heap)"
           printf '%s\n' 'hey!' 'hey?' 'hey.' > /tmp/three.txt
-          stdbuf -o0 -e0 env DELTA_RULE_TRACE=200000 EVV_HETERO=on EVV_ANNO=1 "$bin" /tmp/three.txt 2>&1 | grep -E "# store [24] at|\[\.1he[\]\?\!\.]" | grep -B1 -E "0000007d|0000007e|\[\.1he" | head -100
+          stdbuf -o0 -e0 env DELTA_RULE_TRACE=200000 EVV_HETERO=on EVV_ANNO=1 "$bin" /tmp/three.txt > /tmp/stores-all.txt 2>&1; echo "store-trace-exit=$?"
+          wc -l /tmp/stores-all.txt
+          grep -c -E "^# store" /tmp/stores-all.txt || echo "no ^# store lines"
+          grep -E "^# store" /tmp/stores-all.txt | head -20 || true
+          for m in bang dot query; do
+            case $m in bang) s='hey!';; dot) s='hey.';; query) s='hey?';; esac
+            printf '%s\n' "$s" > /tmp/onemark.txt
+            stdbuf -o0 -e0 env DELTA_RULE_TRACE=200000 EVV_HETERO=on EVV_ANNO=1 "$bin" /tmp/onemark.txt > "/tmp/stores-$m.txt" 2>&1 || true
+            echo "== $m: $(grep -c -E '^# store' /tmp/stores-$m.txt) store lines"
+          done
+          echo "== fields stored differently in hey! vs hey. =="
+          grep -E '^# store' /tmp/stores-bang.txt | sort | uniq -c | sort -rn > /tmp/sb.txt || true
+          grep -E '^# store' /tmp/stores-dot.txt | sort | uniq -c | sort -rn > /tmp/sd.txt || true
+          diff /tmp/sd.txt /tmp/sb.txt | head -60 || true
 
       - name: Measure F0 contours
         working-directory: native/openevv
