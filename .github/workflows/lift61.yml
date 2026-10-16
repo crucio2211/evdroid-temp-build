@@ -27,7 +27,18 @@ jobs:
           git clone --depth 1 https://github.com/Mudb0y/openevv.git /tmp/upstream
           curl -sSL -o /tmp/enu.dylib https://raw.githubusercontent.com/Mudb0y/Apple-Eloquence-ELF/main/vendor/tvOS-18.2/enu.dylib
           ls -l /tmp/enu.dylib
-          llvm-lipo /tmp/enu.dylib -thin x86_64 -output /tmp/enu-x64.dylib
+          python3 -c "
+import struct
+b = open('/tmp/enu.dylib','rb').read()
+magic, nfat = struct.unpack('>II', b[:8])
+assert magic == 0xcafebabe, hex(magic)
+for i in range(nfat):
+    cput, cpusub, off, size, align = struct.unpack('>5I', b[8+20*i:28+20*i])
+    print('arch', i, 'cputype', cput, 'offset', off, 'size', size)
+    if cput == 16777223:
+        open('/tmp/enu-x64.dylib','wb').write(b[off:off+size])
+        print('wrote x86_64 slice', size, 'bytes')
+"
           ls -l /tmp/enu-x64.dylib
           llvm-nm -n /tmp/enu-x64.dylib | head -5
           llvm-nm -n /tmp/enu-x64.dylib | grep -c -i exclam || true
