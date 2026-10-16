@@ -45,7 +45,7 @@ jobs:
         run: |
           set +e
           mkdir -p /tmp/lifted
-          for r in exclam_phrase period_phrase question_phrase comma_phrase; do
+          for r in exclam_phrase period_phrase question_phrase comma_phrase get_nuclear_accent mark_nuclear_accent nucl_f0 find_eng_nucleus insert_f0 get_nuclear_accent assign_sent_final_features build_phrase_final_structure; do
             echo "=== $r ==="
             python3 /tmp/upstream/tools/rules/lift64.py rule /tmp/enu-x64.dylib "$r" > "/tmp/lifted/$r.up" 2>"/tmp/lifted/$r.err"; echo "exit=$?"
             wc -l "/tmp/lifted/$r.up" 2>/dev/null || echo "(no output)"
