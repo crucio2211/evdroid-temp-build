@@ -61,17 +61,7 @@ jobs:
       - name: TEMP rule-attributed store trace (experiment, not shipped)
         working-directory: native/openevv
         run: |
-          python3 -c "
-          import re
-          p = 'src/delta/delta_rules.c'
-          s = open(p).read()
-          pat = re.compile(r'fprintf\(stderr, \"# store %d at %08x = %08x\\\\n\", w,\s*\(unsigned\)\(size_t\)at, \(unsigned\)v\);')
-          rep = 'fprintf(stderr, \"# store %d %s = %08x\\\\n\", w, delta_rule_here ? delta_rule_here->name : \"?\", (unsigned)v);'
-          s2, n = pat.subn(rep, s)
-          assert n == 1, 'pattern count %d' % n
-          open(p, 'w').write(s2)
-          print('store trace now names the rule')
-          "
+          python3 "$GITHUB_WORKSPACE/.github/scripts/name-rule-trace.py"
 
       - name: Build the phonemes harness
         working-directory: native/openevv
