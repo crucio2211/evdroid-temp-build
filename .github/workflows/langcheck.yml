@@ -94,3 +94,17 @@ jobs:
           rms = int((sum(x * x for x in a) / len(a)) ** 0.5)
           print('peak=%d rms=%d frames=%d' % (peak, rms, n))
           "
+          cp /tmp/loud.wav "/tmp/probe-$tag.wav" 2>/dev/null || cp /tmp/loud.wav /tmp/probe.wav
+          python3 -c "
+          import wave, array
+          w = wave.open('/tmp/loud.wav')
+          open('/tmp/probe.s16','wb').write(w.readframes(w.getnframes()))
+          "
+          mkdir -p /tmp/probe16 && cp /tmp/probe.s16 /tmp/probe16/
+          python3 "$GITHUB_WORKSPACE/.github/scripts/f0track.py" /tmp/probe16
+
+      - name: Upload the probe wav
+        uses: actions/upload-artifact@v4
+        with:
+          name: probe-wav
+          path: /tmp/probe*.wav

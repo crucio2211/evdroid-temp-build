@@ -1,0 +1,53 @@
+name: speak61
+
+# Temp-only: speak test sentences through Apple's 6.1 US English engine
+# (converted ELF from the 1.3.0 release) and capture pitch contours, to
+# port 6.1's exclamation intonation to our English build.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  speak:
+    name: speak through 6.1 enu
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the temp tree (for helper scripts)
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Fetch the 6.1 engine and the speak tool
+        run: |
+          curl -sSL -o /tmp/eloq.tar.gz https://github.com/Mudb0y/Apple-Eloquence-ELF/releases/download/1.3.0/apple-eloquence-elf-1.3.0-linux-x86_64.tar.gz
+          mkdir -p /tmp/eloq && tar -xzf /tmp/eloq.tar.gz -C /tmp/eloq --strip-components=1
+          ls /tmp/eloq /tmp/eloq/lib | head -25
+          curl -sSL -o /tmp/speak.c https://raw.githubusercontent.com/Mudb0y/Apple-Eloquence-ELF/main/examples/speak.c
+          gcc /tmp/speak.c -o /tmp/speak -ldl
+          printf '[1.0]\nPath=/tmp/eloq/lib/enu.so\nVersion=6.1\n' > /tmp/eci.ini
+          cat /tmp/eci.ini
+
+      - name: Speak the probe sentences
+        run: |
+          mkdir -p /tmp/sp61 && cd /tmp/sp61
+          cp /tmp/eci.ini ./eci.ini
+          for t in "Hello world!" "Hello world." "Hey!" "Hey."; do
+            n=$(echo "$t" | tr -dc 'A-Za-z' | tr 'A-Z' 'a-z')
+            echo "=== $t -> $n ==="
+            /tmp/speak /tmp/eloq/lib/eci.so "$t"
+            mv /tmp/eci_out.s16 "./$n.s16"
+          done
+          ls -l
+
+      - name: Contours and wavs
+        run: |
+          python3 "$GITHUB_WORKSPACE/.github/scripts/f0track.py" /tmp/sp61
+
+      - name: Upload the 6.1 utterances
+        uses: actions/upload-artifact@v4
+        with:
+          name: speak61-enus
+          path: /tmp/sp61/
