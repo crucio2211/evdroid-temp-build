@@ -53,6 +53,18 @@ jobs:
           done
           exit 0
 
+      - name: Read 6.1's dictionary entries
+        run: |
+          mkdir -p "$HOME/bin"
+          printf '#!/bin/sh\nexec cp "$3" "$5"\n' > "$HOME/bin/llvm-lipo"
+          chmod +x "$HOME/bin/llvm-lipo"
+          export PATH="$HOME/bin:$PATH"
+          cd /tmp/upstream/tools/module
+          for w in hey hello world encourage mutual; do
+            echo "=== 6.1 [$w] ==="
+            python3 lexicon64.py /tmp/enu-x64.dylib "$w" 2>&1 | head -20
+          done
+
       - name: Upload the lifted rules
         uses: actions/upload-artifact@v4
         with:
