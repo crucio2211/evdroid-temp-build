@@ -162,6 +162,8 @@ jobs:
           wc -l /tmp/stores-all.txt
           grep -c -E "^# store" /tmp/stores-all.txt || echo "no ^# store lines"
           grep -E "^# store" /tmp/stores-all.txt | head -20 || true
+          echo "== copyvar calls per mark (stable heap: same src = same preset) =="
+          grep -E "copyvar\(" /tmp/stores-all.txt | head -40 || echo "no copyvar lines"
           for m in bang dot query; do
             case $m in bang) s='hey!';; dot) s='hey.';; query) s='hey?';; esac
             printf '%s\n' "$s" > /tmp/onemark.txt
