@@ -27,11 +27,14 @@ jobs:
           git clone --depth 1 https://github.com/Mudb0y/openevv.git /tmp/upstream
           curl -sSL -o /tmp/enu.dylib https://raw.githubusercontent.com/Mudb0y/Apple-Eloquence-ELF/main/vendor/tvOS-18.2/enu.dylib
           ls -l /tmp/enu.dylib
-          file /tmp/enu.dylib || true
+          llvm-lipo /tmp/enu.dylib -thin x86_64 -output /tmp/enu-x64.dylib
+          ls -l /tmp/enu-x64.dylib
+          llvm-nm -n /tmp/enu-x64.dylib | head -5
+          llvm-nm -n /tmp/enu-x64.dylib | grep -c -i exclam || true
 
       - name: Census the module
         run: |
-          python3 /tmp/upstream/tools/rules/lift64.py census /tmp/enu.dylib | tee /tmp/census.txt | head -60
+          python3 /tmp/upstream/tools/rules/lift64.py census /tmp/enu-x64.dylib | tee /tmp/census.txt | head -60
 
       - name: Lift the phrase rules
         run: |
@@ -39,7 +42,7 @@ jobs:
           mkdir -p /tmp/lifted
           for r in exclam_phrase period_phrase question_phrase comma_phrase; do
             echo "=== $r ==="
-            python3 /tmp/upstream/tools/rules/lift64.py rule /tmp/enu.dylib "$r" > "/tmp/lifted/$r.up" 2>"/tmp/lifted/$r.err"; echo "exit=$?"
+            python3 /tmp/upstream/tools/rules/lift64.py rule /tmp/enu-x64.dylib "$r" > "/tmp/lifted/$r.up" 2>"/tmp/lifted/$r.err"; echo "exit=$?"
             wc -l "/tmp/lifted/$r.up" 2>/dev/null || echo "(no output)"
             head -20 "/tmp/lifted/$r.err" 2>/dev/null || true
           done
