@@ -164,9 +164,9 @@ jobs:
             echo "== $m: $(grep -c -E '^# store' /tmp/stores-$m.txt) store lines"
           done
           echo "== fields stored differently in hey! vs hey. =="
-          grep -E '^# store' /tmp/stores-bang.txt | sort | uniq -c | sort -rn > /tmp/sb.txt || true
-          grep -E '^# store' /tmp/stores-dot.txt | sort | uniq -c | sort -rn > /tmp/sd.txt || true
-          diff /tmp/sd.txt /tmp/sb.txt | head -60 || true
+          grep -E '^# store' /tmp/stores-bang.txt | sed -E 's/ at [0-9a-f]+//' > /tmp/sb.seq || true
+          grep -E '^# store' /tmp/stores-dot.txt | sed -E 's/ at [0-9a-f]+//' > /tmp/sd.seq || true
+          diff /tmp/sd.seq /tmp/sb.seq | head -80 || true
 
       - name: Measure F0 contours
         working-directory: native/openevv
