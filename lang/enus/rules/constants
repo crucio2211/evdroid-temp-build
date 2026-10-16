@@ -1,0 +1,67 @@
+# Bytes a rule of ours names by address, laid down by tools/rules/consts.py
+# into delta_authored_enus.c and recorded in rules/symbols. See the top of
+# that tool for what the bytes are: not ASCII, but one code per character in
+# the alphabet the statement type declares.
+#
+# This one is IBM's own two-byte prefix "re" as ZZstring278 holds it, copied
+# so that every build compiles a store of ours, registers it in the arena
+# beside the lifted ones and copies it in. Nothing names it: what it proves is
+# the path, on every build and in every configuration the suite runs. What
+# proves the naming is in docs/building.md, which says how to hold a rule that
+# reads this against the same rule reading IBM's copy.
+
+bytes lex_prefix_re 18 02
+
+# 6.1's own strings, which the rules lifted out of it at the end of
+# ut_norm.up test against and lay down. Where 6.1 marks an annotation with a
+# backslash and an exclamation mark, which only its own annotation reader
+# takes, the annotation is written with the backquote IBM's reader takes and
+# a space after it, which keeps the length the rule states.
+bytes eti_null         00
+bytes eti_s_1b90d7     48
+bytes eti_s_1b90d8     47
+bytes eti_s_1b90d9     51
+bytes eti_s_1b90da     60
+bytes eti_s_1b90db     49
+bytes eti_s_1b90dc     a8
+bytes eti_s_1b90dd     ac
+bytes eti_s_1b90de     41
+bytes eti_s_1b90df     4f
+bytes eti_s_1b90e0     c7 48
+bytes eti_s_1b90e2     c7 40 48
+bytes eti_s_1b90e5     10 1a
+bytes eti_s_1b90e7     0e
+bytes eti_s_1b90e8     1a 16
+bytes eti_s_1b90ea     43 58 58
+bytes eti_s_1b90ed     1c 1c 1c 41
+bytes eti_s_1b90f1     48 41 41 41 48
+bytes eti_s_1b90f6     58
+bytes eti_s_1b90f7     c7 48 4c 35 48
+bytes eti_s_1b90fc     5d
+bytes eti_s_1b90fd     43
+bytes eti_s_1b90fe     3f
+bytes eti_s_1b90ff     42
+bytes eti_s_1b9100     45
+bytes eti_s_1b9101     44
+bytes eti_s_1b9102     40
+bytes eti_s_1b9103     04
+bytes eti_s_1b9104     46
+bytes eti_s_1b9105     46 47
+bytes eti_s_1b9112     c7 48 4c 36 48 48
+bytes eti_s_1b9118     a7
+bytes eti_s_1b9119     4c
+bytes eti_s_1b911a     ab
+bytes eti_s_1b911d     50
+bytes eti_s_1b911e     53
+bytes eti_s_1b911f     52
+bytes eti_s_1b9120     5e
+bytes eti_s_1b9121     5f
+bytes eti_s_1b9126     4e
+bytes eti_s_1b9127     48 4c 35 48 48 0d 04 1a 48
+bytes eti_s_1b9130     19 1a 01 18
+bytes eti_s_1b9134     19
+bytes eti_s_1b9135     2e
+bytes eti_s_1b9136     48 48
+bytes eti_s_1b9138     54
+bytes eti_s_1b9139     41 48
+bytes eti_s_1b913b     c7
