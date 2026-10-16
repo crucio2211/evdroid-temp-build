@@ -13,7 +13,7 @@ rep = (
     r'fprintf(stderr, "# store %d %s = %08x\n", w, '
     r'delta_rule_here ? delta_rule_here->name : "?", (unsigned)v);'
 )
-s2, n = pat.subn(rep, s)
+s2, n = pat.subn(lambda m: rep, s)
 assert n == 1, "pattern count %d" % n
 open(p, "w").write(s2)
 print("store trace now names the rule")
