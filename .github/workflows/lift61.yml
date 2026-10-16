@@ -72,6 +72,8 @@ jobs:
           wc -l /tmp/full.asm
           grep -n 'set_phrase_defaults' /tmp/full.asm | head -10
           awk '/set_phrase_defaults>:/{on=1} on{print NR": "$0; n++} n>400{exit}' /tmp/full.asm | grep -n 'lea' | head -20
+          echo "=== window 40215-40275 ==="
+          sed -n '40215,40275p' /tmp/full.asm
 
       - name: Upload the lifted rules
         uses: actions/upload-artifact@v4
