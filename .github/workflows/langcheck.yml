@@ -58,10 +58,7 @@ jobs:
       - name: TEMP force exclam stores (experiment, not shipped)
         working-directory: native/openevv
         run: |
-          f=lang/enus/rules/u_integ.dr
-          grep -n 'load movw ind reg r6 3386 into r0w' "$f" | head -5
-          sed -i '4703s/load movw ind reg r6 3386 into r0w/load movw imm 9999 into r0w/' "$f"
-          sed -n '4703,4706p' "$f"
+          python3 "$GITHUB_WORKSPACE/.github/scripts/force-gate.py"
 
       - name: Build the phonemes harness
         working-directory: native/openevv
