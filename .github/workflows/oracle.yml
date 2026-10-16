@@ -58,6 +58,21 @@ jobs:
           done
           find native/openevv \( -name '*.rej' -o -name '*.orig' \) -delete
 
+      - name: TEMP rule-attributed store trace (experiment, not shipped)
+        working-directory: native/openevv
+        run: |
+          python3 -c "
+          p = 'src/delta/delta_rules.c'
+          s = open(p).read()
+          old = '''            fprintf(stderr, \"# store %d at %08x = %08x\\\\n\", w,
+                      (unsigned)(size_t)at, (unsigned)v);'''
+          new = '''            fprintf(stderr, \"# store %d %s = %08x\\\\n\", w,
+                      delta_rule_here ? delta_rule_here->name : \"?\", (unsigned)v);'''
+          assert old in s, 'trace pattern not found'
+          open(p, 'w').write(s.replace(old, new))
+          print('store trace now names the rule')
+          "
+
       - name: Build the phonemes harness
         working-directory: native/openevv
         run: make phonemes-bin LANGS="${{ inputs.lang }}" RULES="bytecode" -j"$(nproc)"
@@ -164,8 +179,8 @@ jobs:
             echo "== $m: $(grep -c -E '^# store' /tmp/stores-$m.txt) store lines"
           done
           echo "== fields stored differently in hey! vs hey. =="
-          grep -E '^# store' /tmp/stores-bang.txt | sed -E 's/ at [0-9a-f]+//' > /tmp/sb.seq || true
-          grep -E '^# store' /tmp/stores-dot.txt | sed -E 's/ at [0-9a-f]+//' > /tmp/sd.seq || true
+          grep -E '^# store' /tmp/stores-bang.txt > /tmp/sb.seq || true
+          grep -E '^# store' /tmp/stores-dot.txt > /tmp/sd.seq || true
           diff /tmp/sd.seq /tmp/sb.seq | head -80 || true
 
       - name: Measure F0 contours
