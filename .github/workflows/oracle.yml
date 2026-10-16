@@ -163,7 +163,21 @@ jobs:
           grep -c -E "^# store" /tmp/stores-all.txt || echo "no ^# store lines"
           grep -E "^# store" /tmp/stores-all.txt | head -20 || true
           echo "== copyvar calls per mark (stable heap: same src = same preset) =="
-          grep -E "copyvar\(" /tmp/stores-all.txt | head -40 || echo "no copyvar lines"
+          python3 -c "
+import re
+txt = open('/tmp/stores-all.txt', errors='replace').read()
+parts = re.split(r'(\[\.1he\][!?.])', txt)
+cur = 'start'
+for p in parts:
+    m = re.match(r'\[\.1he\]([!?.])', p)
+    if m:
+        cur = {'!': 'bang', '.': 'dot', '?': 'query'}[m.group(1)]
+        continue
+    cvs = sorted(set(re.findall(r'copyvar\(@[0-9a-f]+, @([0-9a-f]+), @([0-9a-f]+)\)', p)))
+    print(cur, len(cvs), 'distinct src,dst pairs')
+    for s, d in cvs[:30]:
+        print(' ', cur, s, d)
+"
           for m in bang dot query; do
             case $m in bang) s='hey!';; dot) s='hey.';; query) s='hey?';; esac
             printf '%s\n' "$s" > /tmp/onemark.txt
