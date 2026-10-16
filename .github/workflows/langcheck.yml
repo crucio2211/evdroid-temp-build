@@ -59,9 +59,9 @@ jobs:
         working-directory: native/openevv
         run: |
           f=lang/enus/rules/ut_inton.dr
-          sed -n '4357p;4381p;4390p' "$f"
-          sed -i '4357s/branch jne to L1/cmp testl reg r0 reg r0/;4381s/branch jne to L7/cmp testl reg r0 reg r0/;4390s/branch jne to L7/cmp testl reg r0 reg r0/' "$f"
-          sed -n '4355,4358p;4379,4395p' "$f"
+          grep -n 'load movw ind reg r6 2048 into r0w' "$f" | head -8
+          sed -i '4357s/branch jne to L1/cmp testl reg r0 reg r0/;4381s/branch jne to L7/cmp testl reg r0 reg r0/;4390s/branch jne to L7/cmp testl reg r0 reg r0/;4391s/load movw ind reg r6 2048 into r0w/load movw imm 200 into r0w/' "$f"
+          sed -n '4387,4395p' "$f"
 
       - name: Build the phonemes harness
         working-directory: native/openevv
