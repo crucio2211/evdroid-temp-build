@@ -77,6 +77,7 @@ static const Hetero words[] = {
     { "digest",     0,                    "`[.0dX.1JEst]"        },
     { "export",     0,                    "`[.0Ek.1spcrt]"       },
     { "exports",    0,                    "`[.0Ek.1spcrts]"      },
+    { "produce",    "`[.1pro.0dus]",      0                      },
     { "transfer",   0,                    "`[.0trAns.1fR]"       },
     { "transfers",  0,                    "`[.0trAns.1fRz]"      },
     { "transplant", 0,                    "`[.0trAnz.1plAnt]"    },
@@ -99,7 +100,6 @@ typedef struct {
 } Forced;
 
 static const Forced forced[] = {
-    { "produce",   "`[.0pro.1du.0Te]" },
     { "persona",   "`[.0pR.1so.0nx]" },
     { "personas",  "`[.0pR.1so.0nxz]" },
 };
