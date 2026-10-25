@@ -36,8 +36,9 @@ jobs:
           git show 800a9b60ab6e5a0491bce180d90a6be877bb41d3:app/src/main/kotlin/org/evvdroid/EvvTtsService.kt > app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
           patch -p1 < ci/dict-fix.patch
           grep -q 'MAX_EAGER_TEACH = 100_000' app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
-          grep -q 'byLower' app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
-          echo "dict fix applied"
+          grep -q 'applyDictionary' app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
+          grep -q 'wordMapsLower' app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
+          echo "dict fix v2 applied (inline rewrite + latency)"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
