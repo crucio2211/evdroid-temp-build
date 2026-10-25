@@ -11,6 +11,9 @@ import android.util.Log
 class EvvEngine private constructor(private var handle: Long, val language: Int) {
 
 	private val guard = Any()
+	/** Dictionary calls may wait for a running utterance to finish. Keep that
+	 * wait off [guard], which stop() needs in order to abort the utterance. */
+	private val dictionaryGuard = Any()
 
 	@Volatile
 	private var closed = false
@@ -175,22 +178,26 @@ class EvvEngine private constructor(private var handle: Long, val language: Int)
 	}
 
 	/** Hands a file to the engine's own dictionary loader. Nought is success. */
-	fun loadDictionary(volume: Int, path: String): Int = synchronized(guard) {
-		if (closed) -1 else EvvNative.loadDictionary(handle, volume, path)
+	fun loadDictionary(volume: Int, path: String): Int = synchronized(dictionaryGuard) {
+		val current = synchronized(guard) { if (closed) 0L else handle }
+		if (current == 0L) -1 else EvvNative.loadDictionary(current, volume, path)
 	}
 
-	fun teachWord(volume: Int, key: String, say: String): Int = synchronized(guard) {
-		if (closed) -1 else EvvNative.teachWord(
-			handle, volume, EngineText.encode(language, key), EngineText.encode(language, say)
+	fun teachWord(volume: Int, key: String, say: String): Int = synchronized(dictionaryGuard) {
+		val current = synchronized(guard) { if (closed) 0L else handle }
+		if (current == 0L) -1 else EvvNative.teachWord(
+			current, volume, EngineText.encode(language, key), EngineText.encode(language, say)
 		)
 	}
 
-	fun lookUpWord(volume: Int, key: String): String? = synchronized(guard) {
-		if (closed) null else EvvNative.lookUpWord(handle, volume, EngineText.encode(language, key))
+	fun lookUpWord(volume: Int, key: String): String? = synchronized(dictionaryGuard) {
+		val current = synchronized(guard) { if (closed) 0L else handle }
+		if (current == 0L) null else EvvNative.lookUpWord(current, volume, EngineText.encode(language, key))
 	}
 
-	fun forgetDictionaries() = synchronized(guard) {
-		if (!closed) EvvNative.forgetDictionaries(handle)
+	fun forgetDictionaries() = synchronized(dictionaryGuard) {
+		val current = synchronized(guard) { if (closed) 0L else handle }
+		if (current != 0L) EvvNative.forgetDictionaries(current)
 	}
 
 	/** Queues [text] and starts the engine. The samples come out of [read].
@@ -214,10 +221,15 @@ class EvvEngine private constructor(private var handle: Long, val language: Int)
 		if (!closed) EvvNative.stop(handle)
 	}
 
-	fun close() = synchronized(guard) {
-		if (closed) return
-		closed = true
-		EvvNative.destroy(handle)
-		handle = 0
+	fun close() {
+		synchronized(dictionaryGuard) {
+			val current = synchronized(guard) {
+				if (closed) 0L else {
+					closed = true
+					handle.also { handle = 0 }
+				}
+			}
+			if (current != 0L) EvvNative.destroy(current)
+		}
 	}
 }
