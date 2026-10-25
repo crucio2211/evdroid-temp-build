@@ -5099,9 +5099,11 @@ dictionary eng_abbr statement 1 width 0 records characters
   intl 255 255 124 says international
   int'l 255 255 124 says international
   oz 255 255 227 says ounce
+  Aug 255 255 18 says august
   AON 255 255 9 says angolan[ ]new[ ]kwanza
   AUD 255 255 17 says australian[ ]dollar
   Ala 255 255 6 says alabama
+  Apr 255 255 8 says april
   Ariz 255 255 23 says arizona
   Ark 255 255 12 says arkansas
   Assoc 255 255 13 says association
@@ -5139,6 +5141,7 @@ dictionary eng_abbr statement 1 width 0 records characters
   INC 255 255 122 says incorporated
   IND 255 255 123 says indiana
   ITL 255 255 125 says italian[ ]lire
+  Oct 255 255 220 says october
   Okla 255 255 223 says oklahoma
   Ore 255 255 226 says oregon
   OH 255 255 221 says ohio
@@ -5272,6 +5275,7 @@ dictionary eng_abbr statement 1 width 0 records characters
   CT 255 255 62 says connecticut
   CTRL 255 255 63 says control
   CVE 255 255 65 says cape[ ]verde[ ]escudo
+  Dec 255 255 69 says december
   Del 255 255 68 says delaware
   Dept 255 255 71 says department
   Div 255 255 73 says division
@@ -5283,6 +5287,7 @@ dictionary eng_abbr statement 1 width 0 records characters
   DZD 255 255 83 says algerian[ ]dinar
   D.C 255 255 67 says dee[ ]cea
   F 255 255 90 says fahrenheit
+  Feb 255 255 91 says february
   Fed 255 255 92 says federal
   FIM 255 255 94 says finnish[ ]markka
   Fla 255 255 95 says florida
@@ -5297,6 +5302,9 @@ dictionary eng_abbr statement 1 width 0 records characters
   GBP 255 255 102 says british[ ]pound
   Hts 255 255 112 says heights
   Hz 255 255 114 says hertz
+  Jan 255 255 126 says january
+  Jul 255 255 129 says july
+  Jun 255 255 130 says june
   Jr 255 255 128 says junior
   Kan 255 255 131 says kansas
   Kathe 255 255 132 says kathy
@@ -5316,6 +5324,7 @@ dictionary eng_abbr statement 1 width 0 records characters
   Lt 255 255 152 says lieutenant
   Ltd 255 255 153 says limited
   Maj 255 255 159 says major
+  Mar 255 255 160 says march
   Mass 255 255 158 says massachusetts
   Mich 255 255 171 says michigan
   Minn 255 255 172 says minnesota
@@ -5341,6 +5350,7 @@ dictionary eng_abbr statement 1 width 0 records characters
   Nat'l 255 255 194 says national
   Nebr 255 255 201 says nebraska
   Nev 255 255 203 says nevada
+  Nov 255 255 212 says november
   NC 255 255 195 says north[ ]
   ND 255 255 197 says north[ ]
   NH 255 255 204 says new[ ]
@@ -5374,6 +5384,7 @@ dictionary eng_abbr statement 1 width 0 records characters
   S 255 255 250 says south
   Sat 255 255 251 says saturday
   Sen 255 255 258 says senator
+  Sep 255 255 259 says september
   Sept 255 255 259 says september
   Sun 255 255 266 says sunday
   SEK 255 255 257 says swedish[ ]krona
