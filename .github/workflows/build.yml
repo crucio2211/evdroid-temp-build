@@ -34,14 +34,14 @@ jobs:
       - name: Restore sources and apply fixes
         run: |
           git show 800a9b60ab6e5a0491bce180d90a6be877bb41d3:app/src/main/kotlin/org/evvdroid/EvvTtsService.kt > app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
-          # Prefer clean upstream punctuation if history has it
-          git show 800a9b60ab6e5a0491bce180d90a6be877bb41d3:app/src/main/kotlin/org/evvdroid/PunctuationProcessing.kt > app/src/main/kotlin/org/evvdroid/PunctuationProcessing.kt 2>/dev/null || true
+          git show 800a9b60ab6e5a0491bce180d90a6be877bb41d3:app/src/main/kotlin/org/evvdroid/PunctuationProcessing.kt > app/src/main/kotlin/org/evvdroid/PunctuationProcessing.kt
           patch -p1 < ci/dict-fix.patch
           patch -p1 < ci/punct-fix.patch
           grep -q 'applyDictionary' app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
-          grep -q 'LEAD_MS = 120L' app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
+          grep -q 'LEAD_MS = 80L' app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
           grep -q 'isFileExtensionDot' app/src/main/kotlin/org/evvdroid/PunctuationProcessing.kt
-          echo "latency + extension fixes applied"
+          grep -q 'PunctSymbols.PASS' app/src/main/kotlin/org/evvdroid/PunctuationProcessing.kt
+          echo "latency + keep-period extension fixes applied"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
@@ -73,7 +73,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build the release APK and compile the device checks
-        run: ./gradlew assembleRelease assembleDebugAndroidTest -Pevvdroid.abis="$EVVDROID_ABIS" -Pevvdroid.minify=true -Pevvdroid.legacyPackaging=true -Pevvdroid.rules=bytecode -Pevvdroid.langs="$EVVDROID_LANGS" -Pevvdroid.versionCode="$((1000000 + GITHUB_RUN_NUMBER))" -Pevvdroid.keystore="$EVVDROID_KEYSTORE" -Pevvdroid.storePass="${{ secrets.EVVDROID_STORE_PASS }}" -Pevvdroid.keyPass="${{ secrets.EVVDROID_KEY_PASS }}" --stacktrace
+        run: ./gradlew assembleRelease assembleDebugAndroidTest -Pevvdroid.abis="$EVVDROID_ABIS" -Pevvdroid.minify=true -Pevvdroid.legacyPackaging=true -Pevvdroid.rules=bytecode -Pevvdroid.langs="$EVVDROID_LANGS" -Pevvdroid.versionCode="$((1000000 + GITHUB_RUN_NUMBER))" -Pevvdroid.keystore="$EVVDROID_KEYSTORE" -Pevvdroid.keyPass="${{ secrets.EVVDROID_KEY_PASS }}" -Pevvdroid.storePass="${{ secrets.EVVDROID_STORE_PASS }}" --stacktrace
 
       - name: Upload the APK
         uses: actions/upload-artifact@v4
