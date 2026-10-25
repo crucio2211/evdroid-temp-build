@@ -1,31 +1,28 @@
 --- a/app/src/main/kotlin/org/evvdroid/PunctuationProcessing.kt
 +++ b/app/src/main/kotlin/org/evvdroid/PunctuationProcessing.kt
-@@ -48,6 +48,13 @@
+@@ -48,6 +48,12 @@
  				rep = null
  				pres = PunctSymbols.PASS
  			}
-+			// File extension: "song.mp3" must not become "song dot mp3".
-+			// Drop the period (as a space) so the extension is one token.
++			// File extension: keep the "." character, but never speak the symbol
++			// name "dot" — "file.mp3" must not become "file dot mp3" / "d o t mp3".
 +			if (cp == '.'.code && isFileExtensionDot(text, i, adv)) {
-+				if (out.isNotEmpty() && !out.last().isWhitespace()) out.append(' ')
-+				i += adv
-+				continue
++				rep = null
++				pres = PunctSymbols.PASS
 +			}
  			// Sentence boundary .!? : below all it is prosody, not speech.
  			if (isSentenceMark(cp) && isSentenceEnding(text, i, text.length)) {
  				if (level < ALL) rep = null
-@@ -71,6 +78,25 @@
+@@ -71,6 +77,23 @@
  
  	private fun pad(out: StringBuilder) {
  		if (out.isNotEmpty() && !out.last().isWhitespace()) out.append(' ')
 +	}
 +
-+	/** True when [at] is the dot in a name like file.mp3 or archive.tar.gz
-+	 *  (short alnum extension with at least one letter). */
++	/** True when [at] is the dot of a short extension like .mp3 or .tar. */
 +	private fun isFileExtensionDot(text: String, at: Int, adv: Int): Boolean {
 +		if (at == 0) return false
-+		val prev = text[at - 1]
-+		if (!prev.isLetterOrDigit()) return false
++		if (!text[at - 1].isLetterOrDigit()) return false
 +		var j = at + adv
 +		var n = 0
 +		while (j < text.length && n < 5 && text[j].isLetterOrDigit()) {

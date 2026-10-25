@@ -129,7 +129,7 @@
 -		 *  runs dry while the engine is held back. */
 -		const val LEAD_MS = 300L
 +		 *  runs dry while the engine is held back. Lower for typing latency. */
-+		const val LEAD_MS = 120L
++		const val LEAD_MS = 80L
  		const val SLICE_MS = 20L
  	}
  }
