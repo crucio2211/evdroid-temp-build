@@ -52,7 +52,7 @@ class EvvTtsService : TextToSpeechService() {
 	 *  accented letters (everything but the multiply and divide signs),
 	 *  so a key like ni\u00F1a is taught rather than walked past: the old
 	 *  ASCII-only set silently skipped every imported entry above 127. */
-	private val WORD = Regex("""[A-Za-z0-9À-ÖØ-öø-ÿ]+(?:['-][A-Za-z0-9À-ÖØ-öø-ÿ]+)*""")
+	private val WORD = Regex("""[A-Za-z0-9À-ÖØ-öø-ÿ]+(?:['’-][A-Za-z0-9À-ÖØ-öø-ÿ]+)*""")
 
 	private var loadedRegex: RegexDictionaries.Loaded? = null
 	private var regexEnabled = false
@@ -350,6 +350,20 @@ class EvvTtsService : TextToSpeechService() {
 	private fun isPhonemeSay(say: String): Boolean =
 		say.indexOf('`') >= 0 || (say.startsWith("[") && say.endsWith("]"))
 
+	/** Keeps apostrophes on a matched dictionary word intact until the
+	 *  dictionaries have taught or rewritten it. */
+	private fun protectDictionaryApostrophes(language: Int, text: String): String =
+		WORD.replace(text) { match ->
+			val word = match.value
+			if (word.any { it == '\'' || it == '\u2019' } && lookupEntries(language, word).isNotEmpty()) {
+				word.replace('\'', DICT_APOSTROPHE).replace('\u2019', DICT_CURLY_APOSTROPHE)
+			} else {
+				word
+			}
+		}
+	private fun restoreDictionaryApostrophes(text: String): String =
+		text.replace(DICT_APOSTROPHE, '\'').replace(DICT_CURLY_APOSTROPHE, '\u2019')
+
 	/** Prefer exact-case dict hits; fall back to case-insensitive. Prefer
 	 *  MAIN over ROOT when several volumes match the same word. */
 	private fun lookupEntries(language: Int, word: String): List<DictEntry> {
@@ -488,8 +502,9 @@ class EvvTtsService : TextToSpeechService() {
 		val audio = s?.audioSnapshot() ?: AudioOutput.Snapshot()
 		for ((ri, rawPiece) in rawPieces.withIndex()) {
 			if (stopped) break
+			val protectedPiece = protectDictionaryApostrophes(target.language, rawPiece)
 			val fixed = TextPipeline.process(
-				rawPiece,
+				protectedPiece,
 				emoji = s?.speakEmoji != false,
 				emojiCompress = s?.emojiCompress ?: EmojiProcessing.DEFAULT_COMPRESS,
 				numberMode = numberMode,
@@ -499,7 +514,8 @@ class EvvTtsService : TextToSpeechService() {
 			)
 			// The user's own rewrites go last, closest to the engine, so what is
 			// written in the regex dictionary is what gets said.
-			val afterRegex = if (regexEnabled) RegexDictionaries.apply(loadedRegex, fixed) else fixed
+			val restored = restoreDictionaryApostrophes(fixed)
+			val afterRegex = if (regexEnabled) RegexDictionaries.apply(loadedRegex, restored) else restored
 			// Words the dictionaries know are taught now, ahead of the engine
 			// meeting them below.
 			teachUnknownWords(target, afterRegex)
@@ -643,6 +659,8 @@ class EvvTtsService : TextToSpeechService() {
 		var mostAudioHandedMs: Long = 0
 
 		const val TAG = "evvdroid"
+		const val DICT_APOSTROPHE = '\uE000'
+		const val DICT_CURLY_APOSTROPHE = '\uE001'
 		const val MIN_CHUNK = 1024
 		/** Small commits for a screen reader: what is handed over plays,
 		 *  so a stop waits out at most this much, and speech starts in
