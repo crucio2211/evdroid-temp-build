@@ -116,9 +116,11 @@ find "$engine" \( -name '*.rej' -o -name '*.orig' \) -delete
 # the generated rule code and rewrites arms and records out of the .dict
 # text, and the compile below picks up what changed. Only English has text
 # changes to bake; the other languages' dictionaries are untouched.
+echo "==> baking enus.dict into rules"
 make -C "$engine" -f Makefile rulecode LANGS="$LANGS"
 if command -v python3 >/dev/null 2>&1; then
 	( cd "$engine" && EVV_LANG_DIR=lang/enus python3 tools/module/dict.py build )
+	echo "enus.dict bake completed"
 else
 	echo "no python3: dictionaries stay as last baked" >&2
 fi

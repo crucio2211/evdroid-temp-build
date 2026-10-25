@@ -172,6 +172,7 @@ static int find_language(jint language) {
 }
 
 JNIEXPORT jlong JNICALL Java_org_evvdroid_EvvNative_create(JNIEnv* env, jclass cls, jint language) {
+	setenv("EVV_HETERO", "on", 1);
 	int           i = find_language(language);
 	language_lib* lib;
 	instance*     in;

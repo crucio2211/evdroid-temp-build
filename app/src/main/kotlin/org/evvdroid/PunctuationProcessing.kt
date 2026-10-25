@@ -41,6 +41,13 @@ object PunctuationProcessing {
 					if (entry.level <= level) rep = entry.word
 				}
 			}
+			// Period is always handed to the engine as the character itself.
+			// Never expand it to the spoken name "dot" (file.mp3, example.com,
+			// version numbers, etc. were being read as "dot mp3" / "dot com").
+			if (cp == '.'.code) {
+				rep = null
+				pres = PunctSymbols.PASS
+			}
 			// Numeric context: . or , between ASCII digits passes as-is.
 			if ((cp == '.'.code || cp == ','.code) && i > 0 && i + adv < text.length &&
 				text[i - 1] in '0'..'9' && text[i + adv] in '0'..'9'

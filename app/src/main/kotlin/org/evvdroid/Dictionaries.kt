@@ -99,8 +99,8 @@ object Dictionaries {
 		var taught = 0
 		var refused = 0
 		try {
-			file.forEachLine(Charsets.ISO_8859_1) { line ->
-				val entry = splitEntry(line) ?: return@forEachLine
+			forEachLineSafe(file) { line ->
+				val entry = splitEntry(line) ?: return@forEachLineSafe
 				if (isUsable(entry.first, entry.second)) {
 					if (engine.teachWord(volume, entry.first, entry.second) == 0) taught++ else refused++
 				} else {
@@ -124,8 +124,8 @@ object Dictionaries {
 	fun parse(file: File): Map<String, Pair<String, String>> {
 		val out = LinkedHashMap<String, Pair<String, String>>()
 		try {
-			file.forEachLine(Charsets.ISO_8859_1) { line ->
-				val entry = splitEntry(line) ?: return@forEachLine
+			forEachLineSafe(file) { line ->
+				val entry = splitEntry(line) ?: return@forEachLineSafe
 				if (isUsable(entry.first, entry.second)) {
 					out[entry.first] = entry
 				}
@@ -136,22 +136,63 @@ object Dictionaries {
 		return out
 	}
 
-	/** A line as a key and what to say, or null when it is no entry. */
-	private fun splitEntry(line: String): Pair<String, String>? {
-		val split = line.indexOf('\t')
-		if (split <= 0) return null
-		val key = line.substring(0, split).trim()
-		val say = line.substring(split + 1).trim()
-		if (key.isEmpty() || say.isEmpty()) return null
-		return key to say
+	/** A line as a key and what to say, or null when it is no entry.
+	 *  Accepts tab separation or whitespace, ignores comments (#, //, ;),
+	 *  and ensures phoneme entries starting with [ carry the required backtick. */
+	fun splitEntry(rawLine: String): Pair<String, String>? {
+		var line = rawLine.trim()
+		if (line.startsWith('\uFEFF')) line = line.substring(1).trim()
+		if (line.isEmpty() || line.startsWith('#') || line.startsWith("//") || line.startsWith(";")) {
+			return null
+		}
+		val tab = line.indexOf('\t')
+		val (rawKey, rawSay) = if (tab > 0) {
+			line.substring(0, tab).trim() to line.substring(tab + 1).trim()
+		} else {
+			val ws = line.indexOfFirst { it.isWhitespace() }
+			if (ws <= 0) return null
+			line.substring(0, ws).trim() to line.substring(ws + 1).trim()
+		}
+		if (rawKey.isEmpty() || rawSay.isEmpty()) return null
+		val say = if (rawSay.startsWith("[") && rawSay.endsWith("]") && !rawSay.startsWith("`[")) {
+			"`$rawSay"
+		} else {
+			rawSay
+		}
+		return rawKey to say
+	}
+
+	private fun forEachLineSafe(file: File, action: (String) -> Unit) {
+		val bytes = file.readBytes()
+		val charset = if (isUtf8(bytes)) Charsets.UTF_8 else Charsets.ISO_8859_1
+		var text = String(bytes, charset)
+		if (text.startsWith('\uFEFF')) {
+			text = text.substring(1)
+		}
+		text.lineSequence().forEach(action)
+	}
+
+	private fun isUtf8(bytes: ByteArray): Boolean {
+		if (bytes.size >= 3 && bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte()) {
+			return true
+		}
+		return try {
+			val decoder = Charsets.UTF_8.newDecoder()
+				.onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+				.onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+			decoder.decode(java.nio.ByteBuffer.wrap(bytes))
+			true
+		} catch (_: Exception) {
+			false
+		}
 	}
 
 	/** How many usable entries a file offers, for saying so on the settings
 	 *  screen without an engine to hand. */
 	fun count(file: File): Int = try {
 		var n = 0
-		file.forEachLine(Charsets.ISO_8859_1) { line ->
-			val entry = splitEntry(line) ?: return@forEachLine
+		forEachLineSafe(file) { line ->
+			val entry = splitEntry(line) ?: return@forEachLineSafe
 			if (isUsable(entry.first, entry.second)) n++
 		}
 		n

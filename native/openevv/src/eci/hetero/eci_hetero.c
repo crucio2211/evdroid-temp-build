@@ -472,7 +472,7 @@ int hetero_install(void *manager, void *instance)
     {
         const char *say = getenv("EVV_HETERO");
 
-        if (say == 0 || strcmp(say, "on") != 0)
+        if (say != 0 && strcmp(say, "off") == 0)
             return 0;
     }
 

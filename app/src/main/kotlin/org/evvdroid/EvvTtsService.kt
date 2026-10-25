@@ -43,6 +43,7 @@ class EvvTtsService : TextToSpeechService() {
 	 *  teacher below. */
 	private data class DictEntry(val volume: Int, val key: String, val say: String)
 	private var wordMaps: Map<Int, Map<String, List<DictEntry>>> = emptyMap()
+	private var wordMapsLower: Map<Int, Map<String, List<DictEntry>>> = emptyMap()
 	private val taughtWords = java.util.concurrent.ConcurrentHashMap.newKeySet<Pair<Int, String>>()
 
 	/** Words as the engine meets them: letters and digits carrying their
@@ -253,6 +254,15 @@ class EvvTtsService : TextToSpeechService() {
 				}
 			}
 			wordMaps = read
+			val lower = LinkedHashMap<Int, Map<String, List<DictEntry>>>()
+			for ((lang, entries) in read) {
+				val by = HashMap<String, MutableList<DictEntry>>()
+				for ((exact, list) in entries) {
+					by.getOrPut(exact.lowercase()) { mutableListOf() }.addAll(list)
+				}
+				lower[lang] = by
+			}
+			wordMapsLower = lower
 		}
 		taughtWords.clear()
 		loadedDictionaries = want
@@ -290,7 +300,7 @@ class EvvTtsService : TextToSpeechService() {
 	 *  files teach the rest as spoken through [teachUnknownWords],
 	 *  which also matches a closing period, so capping never strands
 	 *  an abbreviation the eager pass did not reach. */
-	private val MAX_EAGER_TEACH = 5000
+	private val MAX_EAGER_TEACH = 100_000
 
 	/** Every registered word into the engine up front, off the synthesis
 	 *  thread, each to the volumes it belongs in. Stops early if the
@@ -304,11 +314,16 @@ class EvvTtsService : TextToSpeechService() {
 			for (entry in mine) {
 				if (engine !== target) return@Thread
 				if (calls >= MAX_EAGER_TEACH) return@Thread
+				val say = if (entry.say.startsWith("[") && entry.say.endsWith("]") && !entry.say.startsWith("`[")) {
+					"`${entry.say}"
+				} else {
+					entry.say
+				}
 				for (volume in teachVolumes(entry.volume)) {
 					val key = volume to entry.key
 					if (key in taughtWords) continue
 					try {
-						val rc = target.teachWord(volume, entry.key, entry.say)
+						val rc = target.teachWord(volume, entry.key, say)
 						taughtWords.add(key)
 						if (rc != 0) Log.e(TAG, "volume $volume refused ${entry.key}")
 					} catch (failed: Exception) {
@@ -316,9 +331,41 @@ class EvvTtsService : TextToSpeechService() {
 						taughtWords.add(key)
 					}
 					calls++
+					if (calls % 50 == 0) Thread.yield()
 				}
 			}
 		}, "evvdroid-teach").apply { isDaemon = true }.start()
+	}
+
+	/** True when [say] is Eloquence inline phonemes (backtick form), which
+	 *  must go through teachWord — never into the text stream (that broke
+	 *  hetero roots and words like produce / persona). */
+	private fun isPhonemeSay(say: String): Boolean =
+		say.indexOf('`') >= 0 || (say.startsWith("[") && say.endsWith("]"))
+
+	/** Prefer exact-case dict hits; fall back to case-insensitive. Prefer
+	 *  MAIN over ROOT when several volumes match the same word. */
+	private fun lookupEntries(language: Int, word: String): List<DictEntry> {
+		val entries = wordMaps[language] ?: return emptyList()
+		val exact = entries[word] ?: entries[word + "."]
+		if (exact != null) return exact
+		val byLower = wordMapsLower[language] ?: return emptyList()
+		return byLower[word.lowercase()]
+			?: byLower[word.lowercase() + "."]
+			?: emptyList()
+	}
+
+	/** Plain respelling only: rewrite the spoken text for first-pass accuracy.
+	 *  Phoneme entries are never inlined — teachWord handles those. */
+	private fun applyRespellings(language: Int, text: String): String {
+		if (text.isEmpty() || wordMaps.isEmpty()) return text
+		return WORD.replace(text) { match ->
+			val word = match.value
+			val hits = lookupEntries(language, word)
+			if (hits.isEmpty()) return@replace word
+			val entry = hits.minByOrNull { it.volume } ?: return@replace word
+			if (isPhonemeSay(entry.say)) word else entry.say
+		}
 	}
 
 	/** Teaches the words in [text] the engine does not know yet. An
@@ -327,29 +374,23 @@ class EvvTtsService : TextToSpeechService() {
 	 *  word of it, never the one that picks it. */
 	private fun teachUnknownWords(target: EvvEngine, text: String) {
 		if (wordMaps.isEmpty() || text.isEmpty()) return
-		val entries = wordMaps[target.language] ?: return
 		for (raw in WORD.findAll(text)) {
-			// The word as spoken, case and all: the engine matches the key
-			// the same way, so a key written in another case is another entry.
 			val word = raw.value
-			// The word finder leaves a closing period behind, so an
-			// abbreviation matches twice: as written and dotted.
-			val hits = entries[word] ?: entries[word + "."] ?: continue
+			val hits = lookupEntries(target.language, word)
+			if (hits.isEmpty()) continue
 			for (entry in hits) {
+				val say = if (entry.say.startsWith("[") && entry.say.endsWith("]") && !entry.say.startsWith("`[")) {
+					"`${entry.say}"
+				} else {
+					entry.say
+				}
 				for (volume in teachVolumes(entry.volume)) {
-					val key = volume to entry.key
-					if (key in taughtWords) continue
-					try {
-						if (target.teachWord(volume, entry.key, entry.say) == 0) {
-							taughtWords.add(key)
-						} else {
-							// Refused once, refused always: do not ask again.
-							taughtWords.add(key)
-							Log.e(TAG, "volume $volume refused ${entry.key}")
-						}
-					} catch (failed: Exception) {
-						Log.e(TAG, "volume $volume would not take ${entry.key}", failed)
-						taughtWords.add(key)
+					val forms = linkedSetOf(entry.key, word)
+					for (form in forms) {
+						val k = volume to form
+						if (k in taughtWords) continue
+						try { target.teachWord(volume, form, say) } catch (_: Exception) {}
+						taughtWords.add(k)
 					}
 				}
 			}
@@ -418,6 +459,7 @@ class EvvTtsService : TextToSpeechService() {
 		// what made dragging across a launcher go quiet. RHVoice opens the same
 		// way, from inside its player rather than ahead of it.
 		val opening = Opening(callback, target.sampleRateHz)
+		opening.open()
 		val pace = Pace(target.sampleRateHz * BYTES_PER_SAMPLE)
 		// Piece by piece, so that asking for silence waits out a piece rather
 		// than the whole message: the engine cannot abandon what it is saying.
@@ -442,10 +484,11 @@ class EvvTtsService : TextToSpeechService() {
 			)
 			// The user's own rewrites go last, closest to the engine, so what is
 			// written in the regex dictionary is what gets said.
-			val text = if (regexEnabled) RegexDictionaries.apply(loadedRegex, fixed) else fixed
+			val afterRegex = if (regexEnabled) RegexDictionaries.apply(loadedRegex, fixed) else fixed
 			// Words the dictionaries know are taught now, ahead of the engine
 			// meeting them below.
-			teachUnknownWords(target, text)
+			teachUnknownWords(target, afterRegex)
+			val text = applyRespellings(target.language, afterRegex)
 			if (text.isEmpty()) continue
 			val pieces = TextPieces.split(text)
 			for ((at, part) in pieces.withIndex()) {
