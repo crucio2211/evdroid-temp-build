@@ -41,26 +41,14 @@
  				}
  			}
  		}, "evvdroid-teach").apply { isDaemon = true }.start()
-@@ -325,32 +336,39 @@
+@@ -325,31 +336,32 @@
  	 *  utterance usually teaches nothing, and a new word costs one call:
  	 *  a sixty-thousand-word file slows the utterance that first needs a
  	 *  word of it, never the one that picks it. */
-+	private fun applyDictionary(language: Int, text: String): String {
-+		if (text.isEmpty() || wordMaps.isEmpty()) return text
-+		val entries = wordMaps[language] ?: return text
-+		val byLower = wordMapsLower[language]
-+		return WORD.replace(text) { match ->
-+			val word = match.value
-+			val hits = entries[word]
-+				?: entries[word + "."]
-+				?: byLower?.get(word.lowercase())
-+				?: byLower?.get(word.lowercase() + ".")
-+				?: return@replace word
-+			val entry = hits.minByOrNull { it.volume } ?: return@replace word
-+			entry.say
-+		}
-+	}
-+
++	/** Teach dict entries for words in [text] into the engine (CF-style).
++	 *  Case-insensitive lookup; teach both the dictionary key and the spoken
++	 *  form so the engine matches either. Never rewrite the text stream —
++	 *  inline phoneme substitution broke words like "produce" / hetero roots. */
  	private fun teachUnknownWords(target: EvvEngine, text: String) {
  		if (wordMaps.isEmpty() || text.isEmpty()) return
  		val entries = wordMaps[target.language] ?: return
@@ -92,44 +80,32 @@
 -					} catch (failed: Exception) {
 -						Log.e(TAG, "volume $volume would not take ${entry.key}", failed)
 -						taughtWords.add(key)
--					}
-+					val k = volume to word
-+					if (k in taughtWords) continue
-+					try { target.teachWord(volume, word, entry.say) } catch (_: Exception) {}
-+					taughtWords.add(k)
++					fun teach(form: String) {
++						val k = volume to form
++						if (k in taughtWords) return
++						try { target.teachWord(volume, form, entry.say) } catch (_: Exception) {}
++						taughtWords.add(k)
++					}
++					teach(entry.key)
++					if (!entry.key.equals(word, ignoreCase = true) || entry.key != word) {
++						teach(word)
+ 					}
  				}
  			}
- 		}
-@@ -418,6 +436,9 @@
+@@ -418,6 +430,8 @@
  		// what made dragging across a launcher go quiet. RHVoice opens the same
  		// way, from inside its player rather than ahead of it.
  		val opening = Opening(callback, target.sampleRateHz)
-+		// Code Factory opens the stream before speak so the framework is ready
-+		// when the first sample arrives (lower perceived latency on typing).
++		// CF-style: open the stream before speak for lower typing latency.
 +		opening.open()
  		val pace = Pace(target.sampleRateHz * BYTES_PER_SAMPLE)
  		// Piece by piece, so that asking for silence waits out a piece rather
  		// than the whole message: the engine cannot abandon what it is saying.
-@@ -442,10 +463,8 @@
- 			)
- 			// The user's own rewrites go last, closest to the engine, so what is
- 			// written in the regex dictionary is what gets said.
--			val text = if (regexEnabled) RegexDictionaries.apply(loadedRegex, fixed) else fixed
--			// Words the dictionaries know are taught now, ahead of the engine
--			// meeting them below.
--			teachUnknownWords(target, text)
-+			val afterRegex = if (regexEnabled) RegexDictionaries.apply(loadedRegex, fixed) else fixed
-+			val text = applyDictionary(target.language, afterRegex)
- 			if (text.isEmpty()) continue
- 			val pieces = TextPieces.split(text)
- 			for ((at, part) in pieces.withIndex()) {
-@@ -593,7 +612,7 @@
- 		const val MAX_CHUNK = 4096
+@@ -593,7 +607,7 @@
  		const val BYTES_PER_SAMPLE = 2
  		/** How much audio may sit ahead of the speech, so that the track never
--		 *  runs dry while the engine is held back. */
+ 		 *  runs dry while the engine is held back. */
 -		const val LEAD_MS = 300L
-+		 *  runs dry while the engine is held back. CF-style lead for typing. */
 +		const val LEAD_MS = 40L
  		const val SLICE_MS = 20L
  	}
