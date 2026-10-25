@@ -37,12 +37,11 @@ jobs:
           git show 800a9b60ab6e5a0491bce180d90a6be877bb41d3:app/src/main/kotlin/org/evvdroid/PunctuationProcessing.kt > app/src/main/kotlin/org/evvdroid/PunctuationProcessing.kt
           patch -p1 < ci/dict-fix.patch
           patch -p1 < ci/punct-fix.patch
-          grep -q 'wordMapsLower' app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
+          grep -q 'isPhonemeSay' app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
+          grep -q 'applyRespellings' app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
           grep -q 'LEAD_MS = 40L' app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
-          grep -q 'opening.open()' app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
           grep -q 'Period is always handed' app/src/main/kotlin/org/evvdroid/PunctuationProcessing.kt
-          ! grep -q 'applyDictionary' app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
-          echo "CF teachWord dict + period pass-through applied"
+          echo "hybrid dict + period pass-through applied"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
