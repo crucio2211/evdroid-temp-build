@@ -75,6 +75,9 @@ jobs:
             echo "EVVDROID_KEYSTORE=$RUNNER_TEMP/evdroid-debug.p12" >> "$GITHUB_ENV"
           fi
 
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
       - name: Build the release APK and compile the device checks
         # versionCode runs far ahead of every build ever shipped: the temp
         # build host restarts its run numbers at 1, so a raw run number
