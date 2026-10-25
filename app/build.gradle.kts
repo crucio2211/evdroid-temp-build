@@ -114,8 +114,11 @@ android {
 			isMinifyEnabled = true
 			isShrinkResources = true
 			proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-			if (!(findProperty("evvdroid.keystore") as String?).isNullOrBlank()) {
+			val storePath = findProperty("evvdroid.keystore") as String?
+			if (!storePath.isNullOrBlank() && file(storePath).exists()) {
 				signingConfig = signingConfigs.getByName("fixedDebug")
+			} else {
+				signingConfig = signingConfigs.getByName("debug")
 			}
 		}
 		debug {

@@ -136,22 +136,12 @@ object Dictionaries {
 		return out
 	}
 
-	/** A line as a key and what to say, or null when it is no entry.
-	 *  Preferred separator is a tab (IBM / Eloquence shared form). Many
-	 *  external phoneme dictionaries use one or more spaces instead, so
-	 *  those are accepted when no tab is present. Leading # comments and
-	 *  blank lines are skipped. */
+	/** A line as a key and what to say, or null when it is no entry. */
 	private fun splitEntry(line: String): Pair<String, String>? {
-		val raw = line.trim()
-		if (raw.isEmpty() || raw.startsWith("#") || raw.startsWith("//")) return null
-		val tab = raw.indexOf('\t')
-		val (key, say) = if (tab > 0) {
-			raw.substring(0, tab).trim() to raw.substring(tab + 1).trim()
-		} else {
-			val parts = raw.split(Regex("\\s+"), limit = 2)
-			if (parts.size < 2) return null
-			parts[0].trim() to parts[1].trim()
-		}
+		val split = line.indexOf('\t')
+		if (split <= 0) return null
+		val key = line.substring(0, split).trim()
+		val say = line.substring(split + 1).trim()
 		if (key.isEmpty() || say.isEmpty()) return null
 		return key to say
 	}
@@ -176,7 +166,7 @@ object Dictionaries {
 
 	/** A shared name like enumain.dic or esmabbr.dic: a three-letter IBM
 	 *  language tag, then which volume it is. */
-	private val FILE_VOLUME = Regex("""^([a-z]{3})(main|root|abbr|abbrev|abbreviation)\\b""", RegexOption.IGNORE_CASE)
+	private val FILE_VOLUME = Regex("""^([a-z]{3})(main|root|abbr|abbrev|abbreviation)\b""", RegexOption.IGNORE_CASE)
 
 	/** The engine language a shared file names, if its tag is one this app
 	 *  both speaks and links: enumain is American English and so on. Answers
