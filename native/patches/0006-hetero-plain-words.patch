@@ -9,10 +9,11 @@ diff --git a/src/eci/hetero/eci_hetero.c b/src/eci/hetero/eci_hetero.c
 index d75b837..cbddd34 100644
 --- a/src/eci/hetero/eci_hetero.c
 +++ b/src/eci/hetero/eci_hetero.c
-@@ -77,14 +77,6 @@ static const Hetero words[] = {
+@@ -77,14 +77,7 @@ static const Hetero words[] = {
      { "digest",     0,                    "`[.0dX.1JEst]"        },
      { "export",     0,                    "`[.0Ek.1spcrt]"       },
      { "exports",    0,                    "`[.0Ek.1spcrts]"      },
++    { "produce",    "`[.1pro.0dus]",      0                      },
 -    { "produce",    "`[.1pro.0dus]",      0                      },
 -    { "quality",    "`[kw1clIti]",         0                      },
 -    { "qualities",  "`[kw1clItiz]",        0                      },
@@ -24,7 +25,7 @@ index d75b837..cbddd34 100644
      { "transfer",   0,                    "`[.0trAns.1fR]"       },
      { "transfers",  0,                    "`[.0trAns.1fRz]"      },
      { "transplant", 0,                    "`[.0trAnz.1plAnt]"    },
-@@ -94,6 +86,26 @@ static const Hetero words[] = {
+@@ -94,6 +87,25 @@ static const Hetero words[] = {
  
  #define WORDS (int)(sizeof words / sizeof words[0])
  
@@ -34,16 +35,15 @@ index d75b837..cbddd34 100644
 +   alone. Whole words only, so that an inflection keeps its own ending
 +   for the rules to read. The readings are annotations in ETI spellings
 +   and are honoured literally when they match, stress marks and all --
-+   the oracle answers persona [.0pXr.1so.0na] mark for mark. */
++   the oracle answers persona [.0pR.1so.0nx] mark for mark. */
 +typedef struct {
 +    const char *word;
 +    const char *say;      /* the annotation written in its place */
 +} Forced;
 +
 +static const Forced forced[] = {
-+    { "produce",   "`[.0pro.1du.0Te]" },
-+    { "persona",   "`[.0pXr.1so.0na]" },
-+    { "personas",  "`[.0pXr.1so.0naz]" },
++    { "persona",   "`[.0pR.1so.0nx]" },
++    { "personas",  "`[.0pR.1so.0nxz]" },
 +};
 +
 +#define FORCED (int)(sizeof forced / sizeof forced[0])

@@ -319,19 +319,26 @@ class EvvTtsService : TextToSpeechService() {
 				} else {
 					entry.say
 				}
+				val forms = if (entry.key.isNotEmpty() && entry.key[0].isLowerCase()) {
+					listOf(entry.key, entry.key.replaceFirstChar { it.uppercase() })
+				} else {
+					listOf(entry.key)
+				}
 				for (volume in teachVolumes(entry.volume)) {
-					val key = volume to entry.key
-					if (key in taughtWords) continue
-					try {
-						val rc = target.teachWord(volume, entry.key, say)
-						taughtWords.add(key)
-						if (rc != 0) Log.e(TAG, "volume $volume refused ${entry.key}")
-					} catch (failed: Exception) {
-						Log.e(TAG, "volume $volume would not take ${entry.key}", failed)
-						taughtWords.add(key)
+					for (form in forms) {
+						val key = volume to form
+						if (key in taughtWords) continue
+						try {
+							val rc = target.teachWord(volume, form, say)
+							taughtWords.add(key)
+							if (rc != 0) Log.e(TAG, "volume $volume refused $form")
+						} catch (failed: Exception) {
+							Log.e(TAG, "volume $volume would not take $form", failed)
+							taughtWords.add(key)
+						}
+						calls++
+						if (calls % 50 == 0) Thread.yield()
 					}
-					calls++
-					if (calls % 50 == 0) Thread.yield()
 				}
 			}
 		}, "evvdroid-teach").apply { isDaemon = true }.start()
@@ -364,7 +371,15 @@ class EvvTtsService : TextToSpeechService() {
 			val hits = lookupEntries(language, word)
 			if (hits.isEmpty()) return@replace word
 			val entry = hits.minByOrNull { it.volume } ?: return@replace word
-			if (isPhonemeSay(entry.say)) word else entry.say
+			if (isPhonemeSay(entry.say)) {
+				word
+			} else {
+				if (word.isNotEmpty() && word[0].isUpperCase() && entry.say.isNotEmpty() && entry.say[0].isLowerCase()) {
+					entry.say.replaceFirstChar { it.uppercase() }
+				} else {
+					entry.say
+				}
+			}
 		}
 	}
 
@@ -385,7 +400,7 @@ class EvvTtsService : TextToSpeechService() {
 					entry.say
 				}
 				for (volume in teachVolumes(entry.volume)) {
-					val forms = linkedSetOf(entry.key, word)
+					val forms = linkedSetOf(entry.key, word, word.lowercase(), word.replaceFirstChar { it.uppercase() })
 					for (form in forms) {
 						val k = volume to form
 						if (k in taughtWords) continue

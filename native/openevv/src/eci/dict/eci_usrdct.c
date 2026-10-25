@@ -441,11 +441,21 @@ THIS int32_t ud_update(UserDict *u, const char *word, const char *xlat)
 
 THIS const char *ud_lookup(UserDict *u, const char *word)
 {
+    const char *xlat;
     if (word == 0 || *word == 0)
         return 0;
     if (u->hash == 0)
         return 0;
-    return hashLookupString(u->hash, word);
+    xlat = hashLookupString(u->hash, word);
+    if (xlat == 0) {
+        char lower[UD_WORD_MAX + 1];
+        size_t i;
+        for (i = 0; i < sizeof(lower) - 1 && word[i] != 0; i++)
+            lower[i] = (char)tolower((unsigned char)word[i]);
+        lower[i] = 0;
+        xlat = hashLookupString(u->hash, lower);
+    }
+    return xlat;
 }
 
 /* Walking the whole dictionary. The walk lives in the dictionary, so
@@ -492,6 +502,14 @@ THIS int32_t ud_lookupAndTranslate(UserDict *u, delta_state *d,
         return UD_NO_SPINE;
 
     xlat = hashLookupString(u->hash, u->last);
+    if (xlat == 0) {
+        char lower[UD_LAST_ROOM];
+        size_t i;
+        for (i = 0; i < sizeof(lower) - 1 && u->last[i] != 0; i++)
+            lower[i] = (char)tolower((unsigned char)u->last[i]);
+        lower[i] = 0;
+        xlat = hashLookupString(u->hash, lower);
+    }
     if (xlat == 0)
         return UD_NOT_FOUND;
 

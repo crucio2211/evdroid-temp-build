@@ -77,6 +77,7 @@ static const Hetero words[] = {
     { "digest",     0,                    "`[.0dX.1JEst]"        },
     { "export",     0,                    "`[.0Ek.1spcrt]"       },
     { "exports",    0,                    "`[.0Ek.1spcrts]"      },
+    { "produce",    "`[.1pro.0dus]",      0                      },
     { "transfer",   0,                    "`[.0trAns.1fR]"       },
     { "transfers",  0,                    "`[.0trAns.1fRz]"      },
     { "transplant", 0,                    "`[.0trAnz.1plAnt]"    },
@@ -92,16 +93,15 @@ static const Hetero words[] = {
    alone. Whole words only, so that an inflection keeps its own ending
    for the rules to read. The readings are annotations in ETI spellings
    and are honoured literally when they match, stress marks and all --
-   the oracle answers persona [.0pXr.1so.0na] mark for mark. */
+   the oracle answers persona [.0pR.1so.0nx] mark for mark. */
 typedef struct {
     const char *word;
     const char *say;      /* the annotation written in its place */
 } Forced;
 
 static const Forced forced[] = {
-    { "produce",   "`[.0pro.1du.0Te]" },
-    { "persona",   "`[.0pXr.1so.0na]" },
-    { "personas",  "`[.0pXr.1so.0naz]" },
+    { "persona",   "`[.0pR.1so.0nx]" },
+    { "personas",  "`[.0pR.1so.0nxz]" },
 };
 
 #define FORCED (int)(sizeof forced / sizeof forced[0])
