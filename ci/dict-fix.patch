@@ -41,18 +41,44 @@
  				}
  			}
  		}, "evvdroid-teach").apply { isDaemon = true }.start()
-@@ -325,31 +336,32 @@
+@@ -325,31 +336,53 @@
  	 *  utterance usually teaches nothing, and a new word costs one call:
  	 *  a sixty-thousand-word file slows the utterance that first needs a
  	 *  word of it, never the one that picks it. */
-+	/** Teach dict entries for words in [text] into the engine (CF-style).
-+	 *  Case-insensitive lookup; teach both the dictionary key and the spoken
-+	 *  form so the engine matches either. Never rewrite the text stream —
-+	 *  inline phoneme substitution broke words like "produce" / hetero roots. */
++	/** True when [say] is Eloquence inline phonemes (backtick form), which
++	 *  must go through teachWord — never into the text stream (that broke
++	 *  hetero roots and words like produce / persona). */
++	private fun isPhonemeSay(say: String): Boolean =
++		say.indexOf('`') >= 0
++
++	/** Prefer exact-case dict hits; fall back to case-insensitive. Prefer
++	 *  MAIN over ROOT when several volumes match the same word. */
++	private fun lookupEntries(language: Int, word: String): List<DictEntry> {
++		val entries = wordMaps[language] ?: return emptyList()
++		val exact = entries[word] ?: entries[word + "."]
++		if (exact != null) return exact
++		val byLower = wordMapsLower[language] ?: return emptyList()
++		return byLower[word.lowercase()]
++			?: byLower[word.lowercase() + "."]
++			?: emptyList()
++	}
++
++	/** Plain respelling only: rewrite the spoken text for first-pass accuracy.
++	 *  Phoneme entries are never inlined — teachWord handles those. */
++	private fun applyRespellings(language: Int, text: String): String {
++		if (text.isEmpty() || wordMaps.isEmpty()) return text
++		return WORD.replace(text) { match ->
++			val word = match.value
++			val hits = lookupEntries(language, word)
++			if (hits.isEmpty()) return@replace word
++			val entry = hits.minByOrNull { it.volume } ?: return@replace word
++			if (isPhonemeSay(entry.say)) word else entry.say
++		}
++	}
++
  	private fun teachUnknownWords(target: EvvEngine, text: String) {
  		if (wordMaps.isEmpty() || text.isEmpty()) return
- 		val entries = wordMaps[target.language] ?: return
-+		val byLower = wordMapsLower[target.language] ?: emptyMap()
+-		val entries = wordMaps[target.language] ?: return
  		for (raw in WORD.findAll(text)) {
 -			// The word as spoken, case and all: the engine matches the key
 -			// the same way, so a key written in another case is another entry.
@@ -60,12 +86,11 @@
 -			// The word finder leaves a closing period behind, so an
 -			// abbreviation matches twice: as written and dotted.
 -			val hits = entries[word] ?: entries[word + "."] ?: continue
-+			val hits = entries[word]
-+				?: entries[word + "."]
-+				?: byLower[word.lowercase()]
-+				?: byLower[word.lowercase() + "."]
-+				?: continue
++			val hits = lookupEntries(target.language, word)
++			if (hits.isEmpty()) continue
  			for (entry in hits) {
++				// Always teach phonemes; also teach respellings so the engine
++				// dictionary stays consistent with the text path.
  				for (volume in teachVolumes(entry.volume)) {
 -					val key = volume to entry.key
 -					if (key in taughtWords) continue
@@ -80,28 +105,41 @@
 -					} catch (failed: Exception) {
 -						Log.e(TAG, "volume $volume would not take ${entry.key}", failed)
 -						taughtWords.add(key)
-+					fun teach(form: String) {
++					val forms = linkedSetOf(entry.key, word)
++					for (form in forms) {
 +						val k = volume to form
-+						if (k in taughtWords) return
++						if (k in taughtWords) continue
 +						try { target.teachWord(volume, form, entry.say) } catch (_: Exception) {}
 +						taughtWords.add(k)
-+					}
-+					teach(entry.key)
-+					if (!entry.key.equals(word, ignoreCase = true) || entry.key != word) {
-+						teach(word)
  					}
  				}
  			}
-@@ -418,6 +430,8 @@
+@@ -418,6 +451,7 @@
  		// what made dragging across a launcher go quiet. RHVoice opens the same
  		// way, from inside its player rather than ahead of it.
  		val opening = Opening(callback, target.sampleRateHz)
-+		// CF-style: open the stream before speak for lower typing latency.
 +		opening.open()
  		val pace = Pace(target.sampleRateHz * BYTES_PER_SAMPLE)
  		// Piece by piece, so that asking for silence waits out a piece rather
  		// than the whole message: the engine cannot abandon what it is saying.
-@@ -593,7 +607,7 @@
+@@ -442,10 +476,12 @@
+ 			)
+ 			// The user's own rewrites go last, closest to the engine, so what is
+ 			// written in the regex dictionary is what gets said.
+-			val text = if (regexEnabled) RegexDictionaries.apply(loadedRegex, fixed) else fixed
+-			// Words the dictionaries know are taught now, ahead of the engine
+-			// meeting them below.
+-			teachUnknownWords(target, text)
++			val afterRegex = if (regexEnabled) RegexDictionaries.apply(loadedRegex, fixed) else fixed
++			// Teach all matching entries (incl. phonemes) into the engine first.
++			teachUnknownWords(target, afterRegex)
++			// Respellings only in the text stream — phonemes stay engine-side
++			// so hetero / produce / persona are not destroyed by inline phones.
++			val text = applyRespellings(target.language, afterRegex)
+ 			if (text.isEmpty()) continue
+ 			val pieces = TextPieces.split(text)
+ 			for ((at, part) in pieces.withIndex()) {
+@@ -593,7 +629,7 @@
  		const val BYTES_PER_SAMPLE = 2
  		/** How much audio may sit ahead of the speech, so that the track never
  		 *  runs dry while the engine is held back. */
