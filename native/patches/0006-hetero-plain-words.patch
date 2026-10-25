@@ -9,7 +9,7 @@ diff --git a/src/eci/hetero/eci_hetero.c b/src/eci/hetero/eci_hetero.c
 index d75b837..5905e7a 100644
 --- a/src/eci/hetero/eci_hetero.c
 +++ b/src/eci/hetero/eci_hetero.c
-@@ -77,14 +77,8 @@ static const Hetero words[] = {
+@@ -77,14 +77,7 @@ static const Hetero words[] = {
      { "digest",     0,                    "`[.0dX.1JEst]"        },
      { "export",     0,                    "`[.0Ek.1spcrt]"       },
      { "exports",    0,                    "`[.0Ek.1spcrts]"      },
@@ -24,7 +24,7 @@ index d75b837..5905e7a 100644
      { "transfer",   0,                    "`[.0trAns.1fR]"       },
      { "transfers",  0,                    "`[.0trAns.1fRz]"      },
      { "transplant", 0,                    "`[.0trAnz.1plAnt]"    },
-@@ -94,6 +88,25 @@ static const Hetero words[] = {
+@@ -94,6 +87,25 @@ static const Hetero words[] = {
  
  #define WORDS (int)(sizeof words / sizeof words[0])
  
