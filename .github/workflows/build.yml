@@ -45,6 +45,14 @@ jobs:
     steps:
       - name: Check out
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restore EvvTtsService from last good commit
+        run: |
+          git show 800a9b60ab6e5a0491bce180d90a6be877bb41d3:app/src/main/kotlin/org/evvdroid/EvvTtsService.kt > app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
+          test -s app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
+          grep -q 'class EvvTtsService' app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
@@ -72,7 +80,7 @@ jobs:
         run: |
           if [ -n "$KEYSTORE_B64" ]; then
             echo "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/evdroid-debug.p12"
-            echo "EVVDROID_KEYSTORE=$RUNNER_TEMP/evdroid-debug.p12" >> "$GITHUB_ENV"
+            echo "EVVDROID_KEYSTORE=$RUNNER_TEMP/evdroid-debug.p12" >> "${GITHUB_ENV}"
           fi
 
       - name: Make gradlew executable
