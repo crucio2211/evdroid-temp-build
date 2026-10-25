@@ -1,0 +1,34 @@
+exclam: take the UK/6.1 second scan item
+
+6.1's exclam_phrase pushes a second scan item (type 3) into the
+phrase record and marks it kind 2, right after the type 5 item it
+shares with 4.3. The UK module still carries that block; the US one
+was flattened. Without it a final '!' renders with the same contour
+as a '.'
+
+diff --git a/lang/enus/rules/ut_inton.dr b/lang/enus/rules/ut_inton.dr
+index ab2d2d9..19fb07a 100644
+--- a/lang/enus/rules/ut_inton.dr
++++ b/lang/enus/rules/ut_inton.dr
+@@ -4367,11 +4367,17 @@ label L4 was at_0xa9
+   popn 3
+ label L5 was at_0xc2
+   push reg r6
+-  call ZZstarttest6 arity 1 depth 1
++  call ZZnpush_s_3 arity 1 depth 1
++  addk 1996 reg r6 into r0
++  push reg r0
+   push reg r6
+-  call set_window_size arity 1 depth 2
+-  popreg r1
+-  popreg r1
++  store movw imm 2 ind reg r6 1998
++  call npop arity 2 depth 3
++  push reg r6
++  call ZZstarttest6 arity 1 depth 4
++  push reg r6
++  call set_window_size arity 1 depth 5
++  popn 5
+ label L6 was at_0xd0
+   push reg r6
+   call ZZstarttest7 arity 1 depth 1

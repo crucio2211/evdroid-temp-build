@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+	<string name="app_name">Eloquence</string>
+	<string name="engine_name">Eloquence</string>
+	<string name="sample_text">Hello from Eloquence.</string>
+	<string name="preview_text">Hello from Eloquence. This is a test of the current voice.</string>
+
+	<string name="voice_label">Voice</string>
+	<string name="force_language_label">Force language</string>
+	<string name="forced_language_label">Language</string>
+
+	<string name="speed_label">Speed</string>
+	<string name="pitch_label">Pitch</string>
+	<string name="inflection_label">Inflection</string>
+	<string name="head_size_label">Head size</string>
+	<string name="roughness_label">Roughness</string>
+	<string name="breathiness_label">Breathiness</string>
+	<string name="volume_label">Volume</string>
+
+	<string name="speak_label">Speak a sample</string>
+	<string name="reset_label">Reset voice to defaults</string>
+
+	<string name="force_rate_label">Force speech rate</string>
+	<string name="force_pitch_label">Force pitch</string>
+
+	<string name="pauses_label">Pauses</string>
+	<string name="pauses_keep">Do not shorten</string>
+	<string name="pauses_end">Shorten at end of text</string>
+	<string name="pauses_all">Shorten all pauses</string>
+	<string name="phrase_prediction_label">Phrase prediction</string>
+	<string name="abbreviations_label">Expand abbreviations</string>
+	<string name="backquote_tags_label">Enable backquote voice tags</string>
+	<string name="emoji_speak_label">Speak emoji</string>
+	<string name="emoji_compress_label">Compress repeats from</string>
+	<string name="emoji_compress_count">%1$d or more</string>
+
+	<string name="number_processing_label">Process numbers</string>
+	<string name="number_mode_label">Numbers as</string>
+	<string name="number_digits">Digits</string>
+	<string name="number_pairs">Pairs</string>
+	<string name="number_triplets">Triplets</string>
+	<string name="number_quadruplets">Quadruplets</string>
+
+	<string name="camel_case_label">Split camel case</string>
+
+	<string name="punct_processing_label">Process punctuation</string>
+	<string name="punct_level_label">Punctuation</string>
+	<string name="punct_none">None</string>
+	<string name="punct_some">Some</string>
+	<string name="punct_most">Most</string>
+	<string name="punct_all">All</string>
+
+	<string name="dictionary_main">Main dictionary</string>
+	<string name="dictionary_root">Root dictionary</string>
+	<string name="dictionary_abbreviation">Abbreviation dictionary</string>
+	<string name="dictionary_none">None</string>
+	<string name="dictionary_entries">%1$s, %2$d words</string>
+	<string name="dictionary_binary">%1$s, engine format</string>
+	<string name="dictionary_remove">Remove dictionaries</string>
+	<string name="use_dictionary">Use %1$s</string>
+	<string name="dictionary_language_title">Which language is this dictionary for?</string>
+
+	<string name="regex_dictionary_label">Regex dictionary</string>
+	<string name="regex_dictionary_use_label">Use regex dictionary</string>
+	<string name="regex_dictionary_entries">%1$s, %2$d patterns</string>
+
+	<string name="regex_editor_title">Regex entries</string>
+	<string name="regex_add_label">Add pattern</string>
+	<string name="regex_edit_label">Edit pattern</string>
+	<string name="regex_edit">Edit</string>
+	<string name="regex_entry_open">%1$s to %2$s. Activate to edit or delete.</string>
+	<string name="regex_import_label">Import file</string>
+	<string name="regex_export_label">Export file</string>
+	<string name="regex_remove_all">Remove all entries</string>
+	<string name="regex_remove_all_title">Remove every pattern?</string>
+	<string name="regex_pattern_hint">Pattern</string>
+	<string name="regex_replacement_hint">Replacement</string>
+	<string name="regex_match_case">Match case</string>
+	<string name="regex_save">Save</string>
+	<string name="regex_delete_title">Delete this pattern?</string>
+	<string name="regex_delete">Delete</string>
+	<string name="regex_invalid">Enter a pattern and a replacement. The pattern must be a valid regular expression.</string>
+	<string name="regex_entry_delete">Delete %1$s, says %2$s</string>
+
+	<string name="sample_rate_label">Sample rate</string>
+	<string name="hertz">%1$d Hz</string>
+	<string name="version_info">Version %1$s (%2$d)</string>
+
+	<string name="audio_volume_label">Output volume</string>
+	<string name="audio_limiter_label">Limit loud peaks</string>
+
+	<string name="percent">%1$d%%</string>
+	<string name="percent_spoken">%1$d percent</string>
+	<string name="labelled_value">%1$s: %2$s</string>
+	<string name="switch_on">On</string>
+	<string name="switch_off">Off</string>
+	<string name="cancel">Cancel</string>
+</resources>

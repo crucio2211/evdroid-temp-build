@@ -1,0 +1,47 @@
+dict: English smileys and vis-a-vis as 6.1 does (Mudb0y edfc1d9)
+
+Ports the dictionary half: vis-a-vis x4 updated to the [#76][#80]
+encoding (action 56->92), six emoticon entries added to eng_tok_dict
+(:-( sad face, :-) smiley face, :( sad face, :) smiley face,
+;-) smiley face, ;) smiley face). Rule/sets half (ea_text arms)
+needs the upstream arm structure; covered here via dictionary.
+
+diff --git a/lang/enus/enus.dict b/lang/enus/enus.dict
+index 95fd238..9ffd30b 100644
+--- a/lang/enus/enus.dict
++++ b/lang/enus/enus.dict
+@@ -5667,8 +5667,8 @@ dictionary eng_tok_dict statement 1 width 0 records characters
+   s/he 255 255 50 says she[ ]or[ ]he
+   t[ê]te-[à]-t[ê]te 255 255 52 says tett[ ]ah[ ]tett
+   viavoice 255 255 55 says [#76][#80].1vix.2vOs[#81]
+-  vis-a-vis 255 255 56 says [#76]0[ ]veez[ ][#76]0[ ]a[ ]vee
+-  vis-[à]-vis 255 255 56 says [#76]0[ ]veez[ ][#76]0[ ]a[ ]vee
++  vis-a-vis 255 255 92 says [#76][#80]2vizx1vi[#81]
++  vis-[à]-vis 255 255 92 says [#76][#80]2vizx1vi[#81]
+   w 255 255 58 says with
+   w/ 255 255 63 says with
+   w/o 255 255 64 says without
+@@ -5705,8 +5705,8 @@ dictionary eng_tok_dict statement 1 width 0 records characters
+   SCSI 255 255 46 says scuzzy
+   S/he 255 255 50 says she[ ]or[ ]he
+   ViaVoice 255 255 55 says [#76][#80].1vix.2vOs[#81]
+-  Vis-a-vis 255 255 56 says [#76]0[ ]veez[ ][#76]0[ ]a[ ]vee
+-  Vis-[à]-vis 255 255 56 says [#76]0[ ]veez[ ][#76]0[ ]a[ ]vee
++  Vis-a-vis 255 255 92 says [#76][#80]2vizx1vi[#81]
++  Vis-[à]-vis 255 255 92 says [#76][#80]2vizx1vi[#81]
+   VoicePad 255 255 57 says voice[ ][#76]0[ ]pad
+   W 255 255 58 says with
+   Win32 255 255 60 says win[ ]thirty[ ]two
+@@ -5721,6 +5721,12 @@ dictionary eng_tok_dict statement 1 width 0 records characters
+   49ers 255 255 67 says forty[ ]niners
+   76er 255 255 68 says seventy[ ]sixer
+   76ers 255 255 69 says seventy[ ]sixers
++  :-( 255 255 93 says sad[ ][#76]0[ ]face
++  :-) 255 255 94 says smiley[ ]face
++  :( 255 255 95 says sad[ ][#76]0[ ]face
++  :) 255 255 96 says smiley[ ]face
++  ;-) 255 255 97 says smiley[ ]face
++  ;) 255 255 98 says smiley[ ]face
+   (s)he 255 255 50 says she[ ]or[ ]he
+   (S)he 255 255 50 says she[ ]or[ ]he
+ 

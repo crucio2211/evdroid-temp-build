@@ -1,0 +1,90 @@
+This is a test.
+entries button
+dictionaries button
+cities button
+ladies button
+stories button
+cookies button
+the produce is fresh
+will produce more
+unread messages
+the candidate won
+nina
+niya
+ninya
+manyana
+mayana
+ninyo
+niyo
+senyor
+senor
+niña
+mañana
+piñata
+año
+niño
+señor
+señorita
+ñ
+say `[.1ni.0Na]` now
+say `[.0pi.1Na.0ta]` now
+say `[.0ma.1Na.0na]` now
+piyata
+pinyata
+ayoseyor
+merci
+mano
+senile
+sinew
+
+canyon
+onion
+kenya
+
+manya
+minya
+menya
+meenya
+neenya
+kinya
+
+neenyo
+munya
+peenyata
+junior
+
+monya
+moonya
+
+muñeca
+
+persona
+personas
+
+quality
+qualities
+address
+addresses
+poor
+
+hello world this is a test of the phrase prediction system
+`pp0 hello world this is a test of the phrase prediction system
+`0 hello world this is a test of the phrase prediction system
+
+this car is red
+that dog runs
+
+hello!
+hello?
+hello.
+really?!
+go!
+
+jose garcia is here
+
+hey! listen
+listen hey!
+hey!
+hey.
+hey? listen
+listen hey?

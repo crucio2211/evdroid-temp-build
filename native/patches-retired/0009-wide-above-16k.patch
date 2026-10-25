@@ -1,0 +1,28 @@
+wideband: companion for everything above 16k, holding or not
+
+The auto-wideband gate only saw the held rate, so with the holding off
+the rates above sixteen thousand synthesised outright and dull, and
+forty-eight thousand was refused outright. The gate reads the wanted
+rate now: sixteen thousand itself stays native outright, everything
+above takes the companion, whatever the holding says.
+diff --git a/src/eci/synth/eci_synthwork.c b/src/eci/synth/eci_synthwork.c
+index 80aa213..0b1c6e4 100644
+--- a/src/eci/synth/eci_synthwork.c
++++ b/src/eci/synth/eci_synthwork.c
+@@ -640,8 +640,14 @@ THIS int32_t stw_createAudioConverter(SynthThread *t, SampleFormat *fmt)
+     /* The wideband voice engages by itself for anything above sixteen
+        thousand: that is exactly where the checkbox used to engage it, since
+        sixteen thousand itself is native outright and never took the
+-       companion. No setting; the rate the caller asked for decides. */
+-    wide = native == RATE_11025 && wanted > RATE_16000;
++       companion. No setting; the rate the caller asked for decides,
++       whatever the holding says -- with it off the engine would otherwise
++       synthesise these rates outright and dull, and forty-eight thousand,
++       past what it synthesises outright at all, comes back as nought.
++       Sixteen thousand itself stays native outright. */
++    wide = wanted > RATE_16000;
++    if (native == 0 && !wide)
++        return ERR_BAD_RATE;
+     if (wide)
+         native = WIDE_RATE;
+ 

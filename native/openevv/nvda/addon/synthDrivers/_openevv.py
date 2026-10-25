@@ -1,0 +1,1394 @@
+# The engine behind the openevv synthesiser driver.
+#
+# One instance of eci.dll, owned by one thread, feeding NVDA's wave player.
+# The driver beside this file turns a speech sequence into text and
+# annotations; everything here is about getting that text through the library
+# and the samples back out in the right order.
+#
+# Four things about it are deliberate and are the parts to leave alone.
+#
+# The engine is called from one thread and one only. The library keeps its own
+# synthesis thread and hands work to it, and the calls that queue work are not
+# written to be entered from two threads at once. So every call goes through a
+# queue to the thread made here.
+#
+# Nothing ever interrupts the engine, and that is not a workaround waiting to be
+# replaced by something better. Cancelling stops the player and throws the
+# samples away while the utterance finishes synthesising into nothing.
+#
+# There is no cheaper way, and this was settled by measurement rather than
+# argument. All three routes the interface offers -- letting the utterance
+# finish, answering eciDataAbort from the callback, and calling eciStop from
+# the cancelling thread -- wait for the same thing, which is the utterance in
+# flight finishing: answering the abort stops the engine handing over buffers
+# without stopping it doing the work. After a cancel the engine runs straight
+# through what is left at synthesis speed, so that synthesis is the whole of
+# the cost.
+#
+# The reason is in the machine rather than the interface, and docs/status.md has
+# it: the language's rules build a shared structure as they go and later rules
+# assume the earlier ones finished it, so there is no point at which a rule can
+# be abandoned safely. Letting the unit of work finish is the only safe stop.
+# Six attempts at making the engine abandon one are recorded there, including
+# one that gave 459 rules their own give-up tail and still faulted.
+#
+# So the cost is the engine's and not this file's. What reduces it is making the
+# engine faster: building the language's rules as C rather than interpreting the
+# bytecode cuts it by about two thirds.
+#
+# Samples are held back until an index mark arrives, and then handed to the
+# player with a callback attached. The engine flushes a short buffer of its own
+# just before it reports a mark, so what has accumulated when the mark arrives
+# is exactly the audio in front of it. That makes a mark land on the sample it
+# belongs to rather than a buffer later, which is what the review cursor and
+# the typing echo need.
+#
+# The engine's callback blocks in the player, and that is the point. A full
+# player means the engine stops producing, which is how a long passage is
+# synthesised at the speed it is spoken instead of all at once into memory.
+
+import array
+import ctypes
+import math
+import os
+import queue
+import sys
+import tempfile
+import threading
+import time
+import unicodedata
+
+import config
+import nvwave
+from logHandler import log
+
+#: What the formant voice runs at unless it is asked for something else.
+#: Eleven thousand and twenty five is what Eloquence has always sounded like,
+#: and it stays the default for that reason and no other.
+SAMPLE_RATE = 11025
+
+#: The sample rates the add-on offers: the setting the engine takes and the
+#: rate in hertz it comes to. These are IBM's own numbers: nought is eight
+#: thousand, one is eleven thousand and twenty five, and three is sixteen
+#: thousand.
+#:
+#: Sixteen thousand is synthesised outright, with the noise of the frication
+#: left open to the whole band (see src/eci/api/eci_env.c and
+#: src/klatt/klatt_fx.c), and not raised from eleven thousand and twenty
+#: five. Ordered by rate, so a reader is offered them in the order a person
+#: thinks of them.
+SAMPLE_RATES = (
+	(0, 8000),
+	(1, 11025),
+	(3, 16000),
+	# Above sixteen thousand the engine's wideband voice makes the sound:
+	# 22,050 outright, the rest raised from it.
+	(2, 22050),
+	(4, 32000),
+	(5, 44100),
+	(6, 48000),
+)
+
+#: The volume boost levels: the name a setting carries and the gain it
+#: stands for. The engine's own volume stops at a hundred, and at a hundred
+#: the voice is still well under what the audio device can take, so a boost
+#: is applied to the samples on their way to the player.
+BOOST_LEVELS = (
+	("0", 1.0),
+	("1", 1.5),
+	("2", 2.0),
+	("3", 3.0),
+)
+
+#: Where a boosted sample starts to be compressed rather than cut off. Below
+#: it the gain is plain; above it the excess is folded smoothly towards full
+#: scale, so a loud vowel is rounded off and does not crackle.
+BOOST_KNEE = 24000
+
+#: The user's dictionaries: the volume the engine numbers, and what a file
+#: for it is called after the language's own three letters, as in
+#: enumain.dic, enuroot.dic and enuabbr.dic. The last volume is only for the
+#: languages written in another script.
+DICT_VOLUMES = ((0, "main"), (1, "root"), (2, "abbr"), (3, "mainext"))
+
+#: The three letters a language's files start with, by its number.
+DICT_PREFIXES = {
+	0x10000: "enu",
+	0x10001: "eng",
+	0x20000: "esp",
+	0x20001: "esm",
+	0x30000: "fra",
+	0x30001: "frc",
+	0x40000: "deu",
+	0x50000: "ita",
+	0x70000: "ptb",
+	0x80000: "jpn",
+	0x90000: "fin",
+	0x110000: "pol",
+}
+
+#: The engine keeps the name of a dictionary file in 264 bytes and does not
+#: look at how long the name it is handed is, so a longer one would write
+#: over whatever sits beside it inside the reader. Nothing longer than this
+#: is ever passed.
+DICT_PATH_ROOM = 240
+
+#: The engine reads the name in the machine's own code page.
+DICT_PATH_CODEC = "mbcs" if os.name == "nt" else "utf-8"
+
+#: How often, at most, the files are looked at to see whether one was edited.
+DICT_RECHECK = 2.0
+
+
+def dictionaryDirectory():
+	"""Where a person puts their dictionaries: in the reader's own settings,
+	so that updating the add-on does not take them away."""
+	try:
+		import globalVars
+
+		base = globalVars.appArgs.configPath
+	except Exception:  # noqa: BLE001
+		return None
+	return os.path.join(base, "openevv", "dictionaries") if base else None
+
+
+def _enginePath(path):
+	"""The name as the engine can take it, or None when it cannot be."""
+	try:
+		raw = os.path.abspath(path).encode(DICT_PATH_CODEC)
+	except (UnicodeError, LookupError):
+		return None
+	return raw if len(raw) <= DICT_PATH_ROOM else None
+
+
+#: How many samples the library is given room for in one go.
+FRAME = 2048
+
+#: How much audio to gather before handing any to the player, in bytes. Small
+#: enough that speech starts promptly, large enough not to feed in dribbles.
+FEED_AT = FRAME * 2
+
+#: How long the engine's thread may sit inside the player before that is taken
+#: as a stall rather than as back pressure.
+#:
+#: Blocking in the player is the design and not a fault: a full player is what
+#: stops the engine running ahead of the speech. But there is one thread and
+#: the player has no timeout, so a player that stops draining blocks it for
+#: ever -- and with it every utterance queued behind, with nothing said to the
+#: reader and nothing written down. Speech then stays stopped until something
+#: else asks for silence and stops the player as a side effect.
+#:
+#: Longer than any buffer can honestly take to play, so back pressure never
+#: trips it: the player holds a few hundred milliseconds and this is five
+#: seconds.
+STUCK_AFTER = 5.0
+
+#: How often to look. Cheap enough to leave running and short enough that a
+#: reader notices a recovery rather than a silence.
+WATCH_EVERY = 0.5
+
+# What the callback is told.
+MSG_WAVEFORM = 0
+MSG_PHONEME = 1
+MSG_INDEX = 2
+
+# What it answers.
+DATA_NOT_PROCESSED = 0
+DATA_PROCESSED = 1
+DATA_ABORT = 2
+
+# The engine's settings, by number.
+PARAM_SYNTH_MODE = 0
+PARAM_INPUT_TYPE = 1
+PARAM_DICTIONARY = 3
+PARAM_SAMPLE_RATE = 5
+PARAM_REAL_WORLD = 8
+PARAM_LANGUAGE = 9
+
+#: Which pauses the engine shortens, numbered as the IBMTTS driver numbers its
+#: setting of the same name: nought never, one only where text stops with no
+#: punctuation, two always. One is how the engine starts.
+PARAM_PAUSE_MODE = 33
+PAUSE_MODES = (0, 1, 2)
+DEFAULT_PAUSE_MODE = 1
+
+# A voice's, likewise.
+VOICE_GENDER = 0
+VOICE_HEAD_SIZE = 1
+VOICE_PITCH = 2
+VOICE_FLUCTUATION = 3
+VOICE_ROUGHNESS = 4
+VOICE_BREATHINESS = 5
+VOICE_SPEED = 6
+VOICE_VOLUME = 7
+
+#: What each of those will take, which is what a value has to be clamped to
+#: before it is offered: the engine refuses one out of range and answers with
+#: what the setting was, which is indistinguishable from success.
+VOICE_RANGE = {
+	VOICE_GENDER: (0, 1),
+	VOICE_HEAD_SIZE: (0, 100),
+	VOICE_PITCH: (0, 100),
+	VOICE_FLUCTUATION: (0, 100),
+	VOICE_ROUGHNESS: (0, 100),
+	VOICE_BREATHINESS: (0, 100),
+	VOICE_SPEED: (0, 250),
+	VOICE_VOLUME: (0, 100),
+}
+
+# What is on the queue: an utterance, which is dropped if silence has been
+# asked for since it was put there, or a control step, which is not.
+SPEECH = 0
+CONTROL = 1
+
+#: The eight voices the engine ships. It is asked for their names rather than
+#: told them; this is only how many to ask about.
+VOICE_FIRST = 1
+VOICE_LAST = 8
+
+#: What Eloquence's eight presets have always been called, which is what a
+#: person who has used it knows them by. The engine's own names for them
+#: ("Adult Male 1") say what they are and not who they are, and they are the
+#: same eight in every language, so these are the names of the variants.
+VARIANT_NAMES = {
+	1: "Reed",
+	2: "Shelley",
+	3: "Bobby",
+	4: "Rocko",
+	5: "Glen",
+	6: "Sandy",
+	7: "Grandma",
+	8: "Grandpa",
+}
+
+#: What locale each of IBM's languages is, since the library answers with the
+#: number and the reader wants a locale. The number is a family in the third
+#: byte and a dialect in the low one -- 0x10000 is US English and 0x10001
+#: British -- and these are the nine the SDK has. A library built with
+#: something not here is still usable: it is offered under its number and the
+#: reader is told no locale, which loses the language of a voice and nothing
+#: else.
+LOCALES = {
+	0x10000: "en_US",
+	0x10001: "en_GB",
+	0x20000: "es_ES",
+	0x20001: "es_MX",
+	0x30000: "fr_FR",
+	0x30001: "fr_CA",
+	0x40000: "de_DE",
+	0x50000: "it_IT",
+	0x70000: "pt_BR",
+	0x80000: "ja_JP",
+	0x90000: "fi_FI",
+	0x110000: "pl_PL",
+}
+
+#: And what to call it in a list of voices. NVDA shows the voice's name, so
+#: the language has to be in it: there are eight presets per language and
+#: their names repeat.
+LANGUAGE_NAMES = {
+	0x10000: "US English",
+	0x10001: "British English",
+	0x20000: "Castilian Spanish",
+	0x20001: "Latin American Spanish",
+	0x30000: "French",
+	0x30001: "Canadian French",
+	0x40000: "German",
+	0x50000: "Italian",
+	0x70000: "Brazilian Portuguese",
+	0x80000: "Japanese",
+	0x90000: "Finnish",
+	0x110000: "Polish",
+}
+
+
+def localeOf(language):
+	"""The locale a language is, or None where it is not one we know."""
+	return LOCALES.get(language)
+
+
+def nameOf(language):
+	"""What to call a language in front of a person."""
+	return LANGUAGE_NAMES.get(language, "0x%x" % language)
+
+
+#: The code set each language's text goes in, which is not UTF-8. The engine
+#: reads bytes: IBM's eight Western languages take the Windows Western set and
+#: Japanese takes Shift-JIS, which its romanizer reads. Polish declares letters
+#: of its own, the one case in which the engine converts UTF-8 itself. Never
+#: the machine's own ANSI code page, which belongs to the person's Windows and
+#: not to the voice.
+CODE_SETS = {0x80000: "cp932", 0x110000: "utf-8"}
+
+#: Characters that lay text out and say nothing.
+_LAYOUT = dict.fromkeys(map(ord, "\u00ad\u061c\u200e\u200f\u202a\u202b"
+	"\u202c\u202d\u202e\u2060\u2066\u2067\u2068\u2069\ufeff\ufe0e"
+	"\ufe0f"), "")
+_LAYOUT.update({ord("\u200b"): " ", ord("\u2028"): "\n",
+	ord("\u2029"): "\n\n", ord("\u2010"): "-", ord("\u2011"): "-"})
+
+#: What to say instead of a character the code set has not got. Only these,
+#: and not compatibility decomposition across the board, since a fraction or
+#: an exponent means something its decomposition does not.
+_INSTEAD = {
+	"\u2012": "\u2013", "\u2015": "\u2014", "\u201b": "'", "\u201f": '"',
+	"\u2024": ".", "\u2025": "..", "\u1e9e": "SS",
+	"\ufb00": "ff", "\ufb01": "fi", "\ufb02": "fl", "\ufb03": "ffi",
+	"\ufb04": "ffl", "\ufb05": "st", "\ufb06": "st",
+}
+# Full-width ASCII, which pasted text carries, but not the grave accent: a
+# backtick made here would get past the driver's own filtering of annotations.
+_INSTEAD.update({chr(n): chr(n - 0xfee0) for n in range(0xff01, 0xff5f)
+	if n != 0xff40})
+
+
+def _nearestLatin(ch):
+	"""A Latin letter the Western set has not got, with as few of its
+	accents taken off as will make it one it has: u with a diaeresis and a
+	caron keeps the diaeresis."""
+	if not unicodedata.name(ch, "").startswith("LATIN ") or not ch.isalpha():
+		return None
+	parts = unicodedata.normalize("NFD", ch)
+	if len(parts) < 2 or not all(unicodedata.combining(c) for c in parts[1:]):
+		return None
+	for end in range(len(parts) - 1, 0, -1):
+		candidate = unicodedata.normalize("NFC", parts[:end])
+		try:
+			candidate.encode("cp1252")
+		except UnicodeEncodeError:
+			continue
+		return candidate
+	return None
+
+
+def textFor(language, text):
+	"""Text as the bytes a language reads.
+
+	Composed first, so that a u followed by a combining diaeresis says what
+	the u with one does. A space the code set has not got is a space, not a
+	question mark -- a narrow no-break space in a quantity was read out as one
+	-- and what is left that it cannot hold becomes the question mark IBM's
+	own drivers have always sent.
+	"""
+	code = CODE_SETS.get(language, "cp1252")
+	if not text.isascii():
+		text = unicodedata.normalize("NFC", text.translate(_LAYOUT))
+		out = []
+		for ch in text:
+			if ch != "?" and ch.encode(code, "replace") == b"?":
+				if unicodedata.category(ch) == "Zs":
+					ch = " "
+				else:
+					instead = _INSTEAD.get(ch)
+					if instead is None and code == "cp1252":
+						instead = _nearestLatin(ch)
+					if instead is not None and b"?" not in instead.encode(
+							code, "replace"):
+						ch = instead
+			out.append(ch)
+		text = "".join(out)
+	return text.encode(code, "replace")
+
+_CALLBACK = ctypes.WINFUNCTYPE(
+	ctypes.c_int,
+	ctypes.c_void_p,
+	ctypes.c_int,
+	ctypes.c_long,
+	ctypes.c_void_p,
+)
+
+
+def libraryName():
+	"""Which of the two libraries this process can load.
+
+	Both are shipped. A screen reader is one bitness or the other and the
+	library has to match, since this loads it into the reader's own process
+	rather than hosting it somewhere else.
+	"""
+	return "eci.dll" if sys.maxsize > 2**32 else "eci32.dll"
+
+
+def libraryPath():
+	return os.path.join(os.path.dirname(__file__), "openevv_engine", libraryName())
+
+
+class OpenEvvError(Exception):
+	pass
+
+
+class Engine:
+	"""Owns the library, and the one thread allowed to call into it.
+
+	It holds a thread rather than being one. Subclassing threading.Thread shares
+	its namespace, and Python 3.13 keeps the thread's own handle in _handle --
+	which is what this called the engine's instance handle, so joining the thread
+	looked up join on an ECI handle and the add-on raised while NVDA was
+	switching synthesiser away from it. Holding a thread cannot collide with
+	anything the standard library adds later.
+	"""
+
+	def __init__(self, onIndex):
+		self._thread = threading.Thread(
+			target=self._run, name="openevv.engine", daemon=True
+		)
+		self._onIndex = onIndex
+		self._work = queue.Queue()
+		self._ready = threading.Event()
+		self._failure = None
+		self._instance = None
+		self._dll = None
+		self._buffer = (ctypes.c_short * FRAME)()
+		self._callback = _CALLBACK(self._message)
+		self._held = bytearray()
+		self._pendingIndexes = []
+		self._discarding = False
+		self._produced = 0
+		#: Whether the utterance in flight has already been reported
+		#: finished. Nothing is in flight to begin with.
+		self._finished = True
+		#: When the engine's thread went into the player and what for, or None
+		#: when it is not in there. Written by that thread and read by the
+		#: watchdog; a stale read costs one more look round the loop.
+		self._blockedSince = None
+		self._blockedIn = ""
+		#: Whether the reader asked for the pause. A paused player does not
+		#: drain and blocking on one is meant, so the watchdog leaves it alone.
+		self._paused = False
+		self._watchdog = None
+		self._stopWatching = threading.Event()
+		self.player = None
+		#: What the engine is running at, and therefore what the player is
+		#: built for. The two are moved together and never separately.
+		self.sampleRate = SAMPLE_RATE
+		#: How much louder than the engine made it the samples are made on
+		#: the way out, and the tables that do it, built once per gain.
+		self.boost = 1.0
+		self._boostTables = {}
+		#: Where the dictionaries are looked for, what was loaded for each
+		#: language (the files it came from and the dictionary made), which
+		#: dictionary is in force, and when the files were last looked at.
+		self.dictDirectory = dictionaryDirectory()
+		self._dictState = {}
+		self._dictInForce = None
+		self._dictChecked = 0.0
+		self.voiceNames = {}
+		#: Every language the library has, and the one in force.
+		self.languages = []
+		self.language = None
+		#: The eight presets of each language, read once on the way in.
+		self.voiceNamesByLanguage = {}
+		self.version = ""
+		#: What each of the eight settings of the voice in force is, kept here
+		#: so that the driver can answer a settings dialog without calling
+		#: into the library from another thread.
+		self.voiceParams = {}
+		#: The pause mode the engine is in, which is the one it starts in.
+		self.pauseMode = DEFAULT_PAUSE_MODE
+
+	# ---- what the driver asks of it ----------------------------------
+
+	def open(self):
+		self._thread.start()
+		self._ready.wait()
+		if self._failure is not None:
+			raise self._failure
+		self._watchdog = threading.Thread(
+			target=self._watch, name="openevv.watchdog", daemon=True
+		)
+		self._watchdog.start()
+
+	def alive(self):
+		return self._thread.is_alive()
+
+	def close(self):
+		"""Shut down, and do not leave the audio device held if it will not.
+
+		The player is closed only once the thread is known to have stopped. It
+		is the thread that feeds the player, so closing it out from under one
+		still running is how a screen reader ends up with a synthesiser that
+		will not speak after this one has been switched away.
+		"""
+		self._stopWatching.set()
+		self.cancel()
+		self._work.put(None)
+		self._thread.join(timeout=5)
+
+		if self._thread.is_alive():
+			log.error("openevv: the engine's thread would not stop; leaving the"
+			          " player open rather than closing it under one still running")
+			return
+
+		if self.player is not None:
+			self.player.close()
+			self.player = None
+
+	def post(self, batch):
+		"""Run these calls on the engine's thread, in this order."""
+		self._work.put((SPEECH, batch))
+
+	def control(self, batch):
+		"""The same, for something that is not speech.
+
+		A setting is asked for once and has to arrive. Queued as speech it is
+		thrown away by any cancel that overtakes it -- and since every
+		keystroke cancels, a voice or a rate chosen at the wrong moment simply
+		did not happen, with the dialog still showing what was asked for.
+		"""
+		self._work.put((CONTROL, batch))
+
+	def cancel(self):
+		"""Stop now, and throw away what has not been spoken.
+
+		Nothing here tells the engine anything, and that is the whole design.
+		Both of the ways the interface offers to interrupt an utterance --
+		answering eciDataAbort from the callback, and calling eciStop -- once
+		faulted this engine, which is how the add-on crashed NVDA the first
+		time it was asked for silence. Both are fixed, and neither would save
+		anything: each waits for what this waits for.
+
+		So the samples are thrown away instead. The callback goes on answering
+		normally and simply drops what it is handed, the utterance finishes
+		synthesising into nothing, and the engine's state is never touched.
+		What that costs is the synthesis time of the audio nobody will hear,
+		and synthesis runs some eighty times faster than speech: throwing away
+		eleven seconds of a sentence measures at about a seventh of a second.
+
+		Stopping the player is what actually silences it, and it also unblocks
+		the callback if it is waiting for room. Draining the queue drops the
+		utterances that have not started yet.
+		"""
+		self._discarding = True
+		if self.player is not None:
+			self.player.stop()
+		self._drain()
+		# Cleared on the engine's own thread, so it happens after the utterance
+		# being discarded has finished and before the next one starts.
+		self._work.put((CONTROL, [(self._resume, ())]))
+
+	def pause(self, switch):
+		self._paused = switch
+		if self.player is not None:
+			self.player.pause(switch)
+
+	def _drain(self):
+		"""Drop the utterances that have not started, and only those.
+
+		A control step is not speech and is not silenced: it is put back in the
+		order it was in, along with the closing sentinel, which is not ours to
+		drop either.
+		"""
+		keep = []
+		while True:
+			try:
+				item = self._work.get_nowait()
+			except queue.Empty:
+				break
+			self._work.task_done()
+			if item is None or item[0] == CONTROL:
+				keep.append(item)
+		for item in keep:
+			self._work.put(item)
+
+	# ---- the calls themselves, all on this thread --------------------
+
+	def addText(self, text):
+		# A false answer here means the engine refused the call, and that is all
+		# it means. Text the engine simply had no room for is answered as
+		# success, deliberately and as IBM's own build did, so this cannot
+		# report a dropped stretch. What can is the count of samples in
+		# synthesize.
+		if not self._dll.eciAddText(self._instance, text):
+			log.debugWarning("openevv: the engine refused a stretch of text")
+
+	def index(self, n):
+		if not self._dll.eciInsertIndex(self._instance, n):
+			log.debugWarning("openevv: the engine refused an index mark")
+
+	def synthesizePart(self, expectAudio=True):
+		"""Speak a piece of an utterance that is not the end of it.
+
+		The audio goes to the player as it always does; what does not happen is
+		waiting for the player to run dry and saying the utterance finished,
+		because it has not.
+		"""
+		self._speak(expectAudio, last=False)
+
+	def synthesize(self, expectAudio=True):
+		"""Speak what has been added, and do not come back until it is done."""
+		self._speak(expectAudio, last=True)
+
+	def _speak(self, expectAudio, last):
+		"""Hand what has been added to the engine and wait it out.
+
+		eciSynthesize only starts the utterance; eciSynchronize is what drives
+		it and returns once the last buffer has been handed over. Blocking here
+		is wanted: it is what makes the end of an utterance a fact rather than
+		something to be inferred from a mark, and the callback's own blocking in
+		the player is what paces it.
+
+		Waiting it out is also what a cancel costs, since the engine cannot be
+		interrupted, which is why the driver hands long text over in pieces:
+		the wait is then one piece and not the whole message.
+		"""
+		self._held = bytearray()
+		self._pendingIndexes = []
+		self._produced = 0
+		self._finished = False
+
+		if not self._dll.eciSynthesize(self._instance):
+			log.error("openevv: the engine refused to speak")
+			if last:
+				self._finish()
+			return
+
+		self._dll.eciSynchronize(self._instance)
+
+		if self._discarding:
+			# Cancelled part way. Nothing to hand over and nothing to report:
+			# whoever cancelled is not waiting to be told it finished.
+			self._held = bytearray()
+			self._pendingIndexes = []
+			return
+
+		if expectAudio and self._produced == 0:
+			# The engine answers success for text it had no room for, so an
+			# utterance that produced nothing is the only sign that something
+			# was dropped. Silence with nothing said about it is the one
+			# failure a screen reader cannot be diagnosed from.
+			#
+			# Only where there was something to say, though. An utterance of
+			# nothing but annotations -- a spelling mode turned off and no words
+			# with it -- is silent because it should be.
+			log.warning("openevv: the engine took the text and made no audio;"
+			            " something was dropped and it does not say so")
+
+		# Every piece hands over what it gathered, or its tail is thrown away
+		# by the next one; only the last waits for the player to run dry and
+		# says the utterance is over.
+		self._flush(last=last)
+		if last:
+			self._finish()
+
+	def setParam(self, which, value):
+		return self._dll.eciSetParam(self._instance, which, value)
+
+	def _newPlayer(self, hz):
+		return nvwave.WavePlayer(
+			channels=1,
+			samplesPerSec=hz,
+			bitsPerSample=16,
+			outputDevice=config.conf["audio"]["outputDevice"],
+		)
+
+	def setPauseMode(self, mode):
+		"""Choose which pauses the engine shortens, between utterances."""
+		if mode == self.pauseMode:
+			return True
+		if self.setParam(PARAM_PAUSE_MODE, mode) < 0:
+			log.error("openevv: the library refused pause mode %r" % (mode,))
+			return False
+		self.pauseMode = mode
+		return True
+
+	def setSampleRate(self, hz):
+		"""Run the synthesiser at another rate, and move the player with it.
+
+		Queued through control() so that it lands on this thread between
+		utterances rather than inside one, which is also what makes the swap
+		below safe: nothing is being fed while it happens.
+
+		The player is the delicate half. It is a screen reader's only voice,
+		and a rate change that leaves it closed leaves the machine silent. So
+		the new one is built before the old one is let go of, and anything
+		that will not work puts the rate back and says so rather than leaving
+		the two disagreeing -- an engine at one rate feeding a player at
+		another is not a failure that reports itself, it is speech at the
+		wrong speed.
+		"""
+		if hz == self.sampleRate:
+			return True
+
+		setting = None
+		wasSetting = None
+		for number, rate in SAMPLE_RATES:
+			if rate == hz:
+				setting = number
+			if rate == self.sampleRate:
+				wasSetting = number
+		if setting is None:
+			log.error("openevv: %r is not one of the rates offered" % (hz,))
+			return False
+
+		# eciSetParam answers with what the setting was, and refuses with a
+		# negative. Nought is a rate, so a plain truth test would read eight
+		# thousand as a failure.
+		if self.setParam(PARAM_SAMPLE_RATE, setting) < 0:
+			log.error("openevv: the library refused sample rate %d" % hz)
+			return False
+
+		try:
+			player = self._newPlayer(hz)
+		except Exception:
+			log.error("openevv: no player at %d hertz, staying at %d"
+			          % (hz, self.sampleRate), exc_info=True)
+			if wasSetting is not None:
+				self.setParam(PARAM_SAMPLE_RATE, wasSetting)
+			return False
+
+		old = self.player
+		self.player = player
+		self.sampleRate = hz
+		if old is not None:
+			try:
+				old.close()
+			except Exception:
+				log.debugWarning("openevv: the old player would not close",
+				                 exc_info=True)
+		return True
+
+	def getVoiceParam(self, which):
+		return self._dll.eciGetVoiceParam(self._instance, 0, which)
+
+	def setVoiceParam(self, which, value):
+		lo, hi = VOICE_RANGE[which]
+		value = max(lo, min(int(value), hi))
+		self._dll.eciSetVoiceParam(self._instance, 0, which, value)
+		self.voiceParams[which] = value
+
+	def copyVoice(self, number):
+		if not self._dll.eciCopyVoice(self._instance, number, 0):
+			log.debugWarning("openevv: the engine refused voice %d" % number)
+		self._readVoiceParams()
+
+	def setLanguage(self, language):
+		"""Speak another of the languages the library has.
+
+		The engine takes this on the instance it already has -- underneath it
+		is an engine change, which is the original's own arrangement -- so
+		nothing is torn down. The eight presets belong to the language and are
+		read again, because they are not the same numbers, and the caller has
+		to put back whatever it had chosen: a language change is a voice
+		change as well.
+		"""
+		if language == self.language or language not in self.languages:
+			return False
+		# Detach any dictionary before the language change. Handles are
+		# language-scoped; keeping one in force across the switch is what
+		# produced eciSetDict AVs (0xFFFFFFFFFFFFFFFF) in the field.
+		try:
+			if self._dictInForce is not None:
+				self._setDict(None)
+		except Exception:  # noqa: BLE001
+			log.debug("openevv: clear dict before language change", exc_info=True)
+			self._dictInForce = None
+		self.setParam(PARAM_LANGUAGE, language)
+		self.language = language
+		self._readVoiceNames()
+		self._readVoiceParams()
+		try:
+			self._applyDictionaries()
+		except Exception:  # noqa: BLE001
+			log.error("openevv: the dictionaries would not load", exc_info=True)
+		return True
+
+	def selectLanguage(self, language, preset):
+		"""Speak another of the library's languages in the same voice.
+
+		The preset is copied after the change because a language change
+		replaces the voice in force. What the reader had set on top of it --
+		the rate above all -- is put back after that, or a quotation in
+		another language would come out at the preset's speed.
+		"""
+		if language == self.language or language not in self.languages:
+			return
+		kept = dict(self.voiceParams)
+		self.setLanguage(language)
+		if preset not in self.voiceNamesFor(language):
+			preset = VOICE_FIRST
+		self.copyVoice(preset)
+		for which, value in kept.items():
+			self.setVoiceParam(which, value)
+
+	def selectPreset(self, number):
+		"""Speak as another of the eight, keeping the rate and the volume.
+
+		Copying a preset replaces all eight settings of the voice, the rate
+		among them. Who is speaking is a choice about the voice and not about
+		how fast it is going or how loud, so those two are put back.
+		"""
+		if number not in self.voiceNamesFor(self.language):
+			return
+		kept = {w: self.voiceParams[w] for w in (VOICE_SPEED, VOICE_VOLUME)
+		        if w in self.voiceParams}
+		self.copyVoice(number)
+		for which, value in kept.items():
+			self.setVoiceParam(which, value)
+
+	def voiceNamesFor(self, language):
+		"""The eight presets of one language, whichever is in force."""
+		return self.voiceNamesByLanguage.get(language, self.voiceNames)
+
+	def _readVoiceNames(self):
+		self.voiceNames = self._voiceNames()
+		self.voiceNamesByLanguage[self.language] = self.voiceNames
+
+	def _voiceNames(self):
+		room = ctypes.create_string_buffer(64)
+		names = {}
+		for number in range(VOICE_FIRST, VOICE_LAST + 1):
+			self._dll.eciGetVoiceName(self._instance, number, room)
+			name = room.value.decode("latin-1").strip()
+			names[number] = name or ("Voice %d" % number)
+		return names
+
+	def _readVoiceParams(self):
+		for which in VOICE_RANGE:
+			self.voiceParams[which] = self.getVoiceParam(which)
+
+	def _resume(self):
+		self._held = bytearray()
+		self._pendingIndexes = []
+		self._discarding = False
+
+	# ---- the watchdog ------------------------------------------------
+
+	def _enteringPlayer(self, what):
+		self._blockedIn = what
+		self._blockedSince = time.monotonic()
+
+	def _leftPlayer(self):
+		self._blockedSince = None
+
+	def _watch(self):
+		"""Break a stall in the player, and say that there was one.
+
+		The engine's thread blocks in the player on purpose and usually for a
+		fraction of a second. What it cannot do is tell a full player from one
+		that has stopped taking audio, and there is no timeout to find out
+		with, so a player in the second state holds the only thread there is
+		and every utterance queued behind it. To the reader that is silence
+		with nothing in the log, lasting until something else asks for silence
+		and stops the player as a side effect.
+
+		Stopping the player is what unblocks it, which is what cancelling
+		already does, so the recovery here is the one the reader would
+		otherwise have to find. Having abandoned the utterance, whatever was
+		waiting on it is told it finished, or it waits for ever.
+		"""
+		while not self._stopWatching.wait(WATCH_EVERY):
+			since = self._blockedSince
+			# A pause is meant to stop the player draining, so blocking on one
+			# is not a stall. Nor is a wait that has not gone on long enough.
+			if since is None or self._paused:
+				continue
+			waited = time.monotonic() - since
+			if waited < STUCK_AFTER:
+				continue
+			log.error("openevv: the engine's thread has been in the player's %s"
+			          " for %.1f seconds with no pause asked for; abandoning the"
+			          " utterance so speech can go on"
+			          % (self._blockedIn, waited))
+			self._blockedSince = None
+			try:
+				self.cancel()
+			except Exception:  # noqa: BLE001
+				log.error("openevv: the stall would not clear", exc_info=True)
+			# Nobody asked for this silence, so nobody is resetting on the far
+			# side of it: say the utterance finished.
+			self._finish()
+
+	# ---- the thread --------------------------------------------------
+
+	def _run(self):
+		try:
+			self._start()
+		except Exception as e:  # noqa: BLE001
+			self._failure = e
+			self._ready.set()
+			return
+		self._ready.set()
+
+		while True:
+			item = self._work.get()
+			if item is None:
+				self._work.task_done()
+				break
+			kind, batch = item
+			if kind == SPEECH and self._discarding:
+				# Asked for silence before any of this was submitted. Text the
+				# engine has been given cannot be taken back -- eciClearInput
+				# only empties the manual queue, which this mode never fills --
+				# so an utterance is either submitted whole or not at all. Not
+				# at all is free, and under rapid arrowing it is most of them.
+				self._work.task_done()
+				continue
+			try:
+				if kind == SPEECH:
+					self._checkDictionaries()
+				for fn, args in batch:
+					fn(*args)
+			except Exception:  # noqa: BLE001
+				log.error("openevv: a call into the engine failed", exc_info=True)
+			self._work.task_done()
+
+		self._finishThread()
+
+	def _start(self):
+		path = libraryPath()
+		if not os.path.isfile(path):
+			raise OpenEvvError("openevv: there is no library at %s" % path)
+
+		dll = ctypes.WinDLL(path)
+
+		# Every handle said out loud. A handle is a pointer, and left to
+		# itself ctypes narrows one to an int and hands the engine half an
+		# address.
+		dll.eciNewEx.restype = ctypes.c_void_p
+		dll.eciNewEx.argtypes = [ctypes.c_int]
+		dll.eciDelete.restype = ctypes.c_void_p
+		dll.eciDelete.argtypes = [ctypes.c_void_p]
+		dll.eciGetAvailableLanguages.argtypes = [
+			ctypes.c_void_p,
+			ctypes.POINTER(ctypes.c_int),
+		]
+		dll.eciRegisterCallback.argtypes = [
+			ctypes.c_void_p,
+			ctypes.c_void_p,
+			ctypes.c_void_p,
+		]
+		dll.eciSetOutputBuffer.argtypes = [
+			ctypes.c_void_p,
+			ctypes.c_int,
+			ctypes.c_void_p,
+		]
+		dll.eciSetParam.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+		dll.eciGetParam.argtypes = [ctypes.c_void_p, ctypes.c_int]
+		dll.eciSetVoiceParam.argtypes = [
+			ctypes.c_void_p,
+			ctypes.c_int,
+			ctypes.c_int,
+			ctypes.c_int,
+		]
+		dll.eciGetVoiceParam.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+		dll.eciGetVoiceName.argtypes = [
+			ctypes.c_void_p,
+			ctypes.c_int,
+			ctypes.c_char_p,
+		]
+		dll.eciCopyVoice.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
+		dll.eciAddText.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+		dll.eciInsertIndex.argtypes = [ctypes.c_void_p, ctypes.c_int]
+		dll.eciSynthesize.argtypes = [ctypes.c_void_p]
+		dll.eciSynchronize.argtypes = [ctypes.c_void_p]
+		dll.eciVersion.argtypes = [ctypes.c_char_p]
+		dll.eciSpeaking.argtypes = [ctypes.c_void_p]
+		dll.eciNewDict.restype = ctypes.c_void_p
+		dll.eciNewDict.argtypes = [ctypes.c_void_p]
+		dll.eciSetDict.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+		dll.eciLoadDict.argtypes = [
+			ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_char_p,
+		]
+
+		# Asked with no room, which answers how many there are, and again with
+		# room. Only US English is in the library, but ask rather than assume.
+		count = ctypes.c_int(0)
+		if dll.eciGetAvailableLanguages(None, ctypes.byref(count)):
+			raise OpenEvvError("openevv: the library would not say what languages it has")
+		if count.value < 1:
+			raise OpenEvvError("openevv: the library has no language in it")
+		languages = (ctypes.c_uint * count.value)()
+		dll.eciGetAvailableLanguages(languages, ctypes.byref(count))
+
+		handle = dll.eciNewEx(languages[0])
+		if not handle:
+			raise OpenEvvError("openevv: the library would not make an instance")
+
+		self._dll = dll
+		self._instance = handle
+
+		dll.eciRegisterCallback(handle, self._callback, None)
+		if not dll.eciSetOutputBuffer(handle, FRAME, self._buffer):
+			raise OpenEvvError("openevv: the library refused a sample buffer")
+
+		# Annotations on, because that is how prosody, spelling and pauses are
+		# said inside the text. The synthesis mode is left as it came: the
+		# queued mode exists for a caller that wants to set a voice between
+		# stretches, and this driver says such things in the text instead.
+		dll.eciSetParam(handle, PARAM_INPUT_TYPE, 1)
+
+		room = ctypes.create_string_buffer(64)
+		dll.eciVersion(room)
+		self.version = room.value.decode("latin-1").strip()
+
+		self.languages = [languages[i] for i in range(count.value)]
+		self.language = self.languages[0]
+
+		# Every language's presets, read now rather than when one is asked
+		# for: the reader wants the whole list of voices before it has
+		# chosen any of them, and reading a language's presets means being
+		# in that language. Going through them here costs one pass on the
+		# way in and nothing afterwards.
+		for language in self.languages:
+			if language != self.language:
+				dll.eciSetParam(handle, PARAM_LANGUAGE, language)
+			self.voiceNamesByLanguage[language] = self._voiceNames()
+		if len(self.languages) > 1:
+			dll.eciSetParam(handle, PARAM_LANGUAGE, self.language)
+		self.voiceNames = self.voiceNamesByLanguage[self.language]
+
+		self._readVoiceParams()
+
+		# A folder to put dictionaries in, made so that it can be found.
+		if self.dictDirectory:
+			try:
+				os.makedirs(self.dictDirectory, exist_ok=True)
+			except OSError:
+				log.debugWarning("openevv: no dictionary folder", exc_info=True)
+		try:
+			self._applyDictionaries()
+		except Exception:  # noqa: BLE001
+			log.error("openevv: the dictionaries would not load", exc_info=True)
+
+		self.player = self._newPlayer(self.sampleRate)
+
+	def _finishThread(self):
+		try:
+			if self._instance is not None:
+				self._dll.eciDelete(self._instance)
+		except Exception:  # noqa: BLE001
+			log.error("openevv: the engine would not shut down", exc_info=True)
+		self._instance = None
+
+	# ---- the engine's callback ---------------------------------------
+
+	def _message(self, handle, message, param, data):
+		"""What the engine hands over, and what becomes of it.
+
+		The answer is always eciDataProcessed, even when the samples are being
+		thrown away. eciDataAbort is what the interface offers for refusing the
+		rest of an utterance, and it saves nothing over this, so it is never
+		used -- see cancel. Nothing here changes any engine state, which is
+		what makes interrupting safe.
+		"""
+		try:
+			if self._discarding:
+				return DATA_PROCESSED
+			if message == MSG_WAVEFORM:
+				self._produced += param
+				self._held.extend(bytes(self._buffer)[: param * 2])
+				if len(self._held) >= FEED_AT:
+					self._flush()
+			elif message == MSG_INDEX:
+				# The audio in hand is what runs up to this mark, so it goes
+				# now with the mark hung off the end of it.
+				self._pendingIndexes.append(int(param))
+				self._flush()
+			return DATA_PROCESSED
+		except Exception:  # noqa: BLE001
+			log.error("openevv: the engine's callback failed", exc_info=True)
+			return DATA_PROCESSED
+
+	# ---- the user's dictionaries -------------------------------------
+
+	def _dictFolders(self):
+		"""Where a dictionary is looked for.
+
+		Two places, in order. The reader's own, in their settings,
+		# so that updating the add-on does not take a dictionary
+		# away; and the add-on's own folder, beside the engine, in
+		# the arrangement the IBMTTS driver uses, so that a
+		# dictionary dropped beside the engine is found with no
+		# setting at all. The reader's own is looked at first, so
+		# that where both hold a dictionary for the same volume it
+		# is the reader's that is read.
+		"""
+		folders = []
+		if self.dictDirectory:
+			folders.append(self.dictDirectory)
+		folders.append(os.path.dirname(os.path.abspath(__file__)))
+		return folders
+
+	def _dictFiles(self, language):
+		"""The dictionary files there are for a language, by volume."""
+		prefix = DICT_PREFIXES.get(language)
+		if not prefix:
+			return {}
+		found = {}
+		for folder in self._dictFolders():
+			try:
+				names = {n.lower(): n for n in os.listdir(folder)}
+			except OSError:
+				continue
+			for volume, kind in DICT_VOLUMES:
+				if volume in found:
+					continue
+				real = names.get("%s%s.dic" % (prefix, kind))
+				if real:
+					found[volume] = os.path.join(folder, real)
+		return found
+
+	def _dictSignature(self, files):
+		"""What the files are right now, so that an edit is noticed."""
+		signature = []
+		for volume, path in sorted(files.items()):
+			try:
+				st = os.stat(path)
+			except OSError:
+				continue
+			signature.append((volume, path, st.st_mtime_ns, st.st_size))
+		return tuple(signature)
+
+	def _dictReadable(self, path):
+		"""(name for the engine, copy to remove afterwards), or (None, None).
+
+		The engine drops the last line of a file that does not end in a
+		newline, so such a file is loaded from a copy that does. A name it
+		cannot take, by length or by characters, is passed over and logged.
+		"""
+		try:
+			with open(path, "rb") as f:
+				data = f.read()
+		except OSError:
+			log.error("openevv: cannot read %s" % path, exc_info=True)
+			return None, None
+		if not data.strip():
+			return None, None
+		if data.endswith(b"\n"):
+			raw = _enginePath(path)
+			if raw is None:
+				log.error("openevv: the name of %s is too long or has characters "
+				          "the engine cannot be given; use a shorter profile path"
+				          % path)
+			return raw, None
+		try:
+			descriptor, copy = tempfile.mkstemp(suffix=".dic")
+			with os.fdopen(descriptor, "wb") as f:
+				f.write(data + b"\n")
+		except OSError:
+			log.error("openevv: no copy of %s" % path, exc_info=True)
+			return None, None
+		raw = _enginePath(copy)
+		if raw is None:
+			log.error("openevv: %s has no newline at the end and cannot be "
+			          "copied anywhere the engine can read; add one" % path)
+			os.remove(copy)
+			return None, None
+		return raw, copy
+
+	def _validDictHandle(self, handle):
+		"""Reject NULL and the all-ones pointer Windows returns on failure.
+
+		eciNewDict can fail with a value that is truthy in Python (-1 /
+		0xFFFFFFFFFFFFFFFF). Passing that to eciSetDict access-violates on
+		language switch (log: reading 0xFFFFFFFFFFFFFFFF).
+		"""
+		if handle is None:
+			return False
+		try:
+			h = int(ctypes.cast(handle, ctypes.c_void_p).value or 0)
+		except (TypeError, ValueError, OverflowError):
+			try:
+				h = int(handle)
+			except (TypeError, ValueError):
+				return False
+		if h == 0 or h == -1 or (h & 0xFFFFFFFFFFFFFFFF) == 0xFFFFFFFFFFFFFFFF:
+			return False
+		return True
+
+	def _setDict(self, handle):
+		"""Activate a user-dictionary handle, or None to clear.
+
+		Never pass a failed/stale handle into the DLL (AV on language change).
+		"""
+		if handle is not None and not self._validDictHandle(handle):
+			log.error("openevv: refusing invalid dictionary handle %r" % (handle,))
+			self._dictInForce = None
+			return
+		if self._dll is None or self._instance is None:
+			self._dictInForce = None
+			return
+		try:
+			# NULL is a valid "no dictionary" argument.
+			self._dll.eciSetDict(self._instance, handle)
+			self._dictInForce = handle
+		except OSError:
+			log.error("openevv: eciSetDict failed for handle %r" % (handle,),
+			          exc_info=True)
+			self._dictInForce = None
+			# Drop cached state that pointed at this handle.
+			for lang, state in list(self._dictState.items()):
+				if state and state[1] is handle:
+					del self._dictState[lang]
+
+	def _applyDictionaries(self):
+		"""Put in force the dictionaries there are for the language in force.
+
+		A dictionary belongs to the language it was made in, so each language
+		has its own, made the first time it is spoken in and made again when
+		one of its files has been edited or removed. The old one is not freed:
+		the engine's release of one is the thing in it least tried, and an edit
+		is rare.
+		"""
+		dll, instance, language = self._dll, self._instance, self.language
+		files = self._dictFiles(language)
+		signature = self._dictSignature(files)
+		known = self._dictState.get(language)
+
+		if known is None and not signature:
+			if self._dictInForce is not None:
+				self._setDict(None)
+			return
+		if known is not None and known[0] == signature:
+			handle = known[1]
+			if handle is not None and not self._validDictHandle(handle):
+				del self._dictState[language]
+				# fall through and rebuild
+			elif self._dictInForce != handle:
+				self._setDict(handle)
+				if handle is None or self._dictInForce == handle:
+					return
+				# set failed — drop cache and rebuild
+				self._dictState.pop(language, None)
+			else:
+				return
+		# Loading is refused while the engine is speaking; try again later.
+		if dll.eciSpeaking(instance):
+			return
+
+		if not signature:
+			self._setDict(None)
+			self._dictState[language] = ((), None)
+			return
+
+		handle = dll.eciNewDict(instance)
+		if not self._validDictHandle(handle):
+			log.error("openevv: the engine would not make a dictionary (handle=%r)"
+			          % (handle,))
+			return
+		self._setDict(handle)
+		for volume, path, _time, _size in signature:
+			raw, copy = self._dictReadable(path)
+			if raw is None:
+				continue
+			try:
+				answer = dll.eciLoadDict(instance, handle, volume, raw)
+			finally:
+				if copy is not None:
+					try:
+						os.remove(copy)
+					except OSError:
+						pass
+			if answer:
+				log.error("openevv: the engine answered %d loading %s"
+				          % (answer, path))
+			else:
+				log.debug("openevv: loaded %s" % path)
+		self._dictState[language] = (signature, handle)
+
+	def _checkDictionaries(self):
+		"""Look for an edited dictionary, not more often than every few
+		seconds, between one utterance and the next."""
+		now = time.monotonic()
+		if now - self._dictChecked < DICT_RECHECK:
+			return
+		self._dictChecked = now
+		try:
+			self._applyDictionaries()
+		except Exception:  # noqa: BLE001
+			log.error("openevv: the dictionaries would not reload", exc_info=True)
+
+	def setBoost(self, name):
+		"""Choose a boost level by its name. Anything else is left alone."""
+		for level, gain in BOOST_LEVELS:
+			if level == str(name):
+				self.boost = gain
+				return True
+		log.error("openevv: %r is not a volume boost level" % (name,))
+		return False
+
+	def _boostTable(self, gain):
+		"""What every sixteen-bit sample becomes at this gain, indexed by the
+		sample itself: a negative index counts from the end, so a negative
+		sample finds its own entry without being shifted first."""
+		table = self._boostTables.get(gain)
+		if table is None:
+			room = 32767.0 - BOOST_KNEE
+			table = []
+			for u in range(65536):
+				v = (u - 65536 if u >= 32768 else u) * gain
+				mag = abs(v)
+				if mag > BOOST_KNEE:
+					mag = BOOST_KNEE + room * math.tanh((mag - BOOST_KNEE) / room)
+				mag = int(round(mag))
+				table.append(max(-32768, min(32767, -mag if v < 0 else mag)))
+			self._boostTables[gain] = table
+		return table
+
+	def _boosted(self, audio):
+		gain = self.boost
+		if gain == 1.0 or not audio:
+			return audio
+		table = self._boostTable(gain)
+		samples = array.array("h")
+		samples.frombytes(audio)
+		return array.array("h", map(table.__getitem__, samples)).tobytes()
+
+	def _flush(self, last=False):
+		if self._held:
+			audio = self._boosted(bytes(self._held))
+			del self._held[:]
+			marks = self._pendingIndexes
+			self._pendingIndexes = []
+			self._enteringPlayer("feed")
+			try:
+				if marks:
+					self.player.feed(audio, onDone=lambda m=marks: self._report(m))
+				else:
+					self.player.feed(audio)
+			except Exception:  # noqa: BLE001
+				log.error("openevv: a buffer would not play", exc_info=True)
+				self._report(marks)
+			finally:
+				self._leftPlayer()
+		else:
+			# A mark with no audio in front of it still has to be reported, or
+			# whatever is waiting on it waits for ever.
+			self._reportIndexes()
+
+		# Waiting for the end of the audio has to happen whether or not there
+		# was anything left to hand over: an utterance ending on a mark leaves
+		# nothing in hand, and saying it is finished before the last buffer has
+		# played cuts the next one in over it.
+		if last:
+			self._enteringPlayer("idle")
+			try:
+				self.player.idle()
+			except Exception:  # noqa: BLE001
+				log.debugWarning("openevv: the player would not go idle", exc_info=True)
+			finally:
+				self._leftPlayer()
+
+	def _reportIndexes(self):
+		marks = self._pendingIndexes
+		self._pendingIndexes = []
+		self._report(marks)
+
+	def _report(self, marks):
+		for mark in marks:
+			self._onIndex(mark)
+
+	def _finish(self):
+		"""Say the utterance is over, once, whoever gets there first.
+
+		Two threads can be the one to say it. Where the watchdog breaks a
+		stall inside the last player.idle(), it abandons the utterance and
+		reports it finished -- and the engine's thread then comes out of
+		the player anyway, past the point where it checks whether it was
+		cancelled, and reports it finished as well. Two reports of one
+		utterance leave NVDA's speech manager a step ahead of itself, so
+		the second is dropped here rather than at either caller.
+		"""
+		if self._finished:
+			return
+		self._finished = True
+		self._onIndex(None)

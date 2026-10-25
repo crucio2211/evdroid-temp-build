@@ -1,0 +1,11 @@
+dict: drop the mutual entry
+
+The rules read it on their own; the override is not wanted.
+
+diff --git a/lang/enus/enus.dict b/lang/enus/enus.dict
+--- a/lang/enus/enus.dict
++++ b/lang/enus/enus.dict
+@@ -2999,3 +2999,2 @@
+   mustafa 255 255 71 says m u s t a f x
+-  mutual 255 255 72 says m y u C x w x l
+   mrazek 255 255 55 says m r a z E k
