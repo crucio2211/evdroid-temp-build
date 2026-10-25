@@ -376,20 +376,49 @@ class EvvTtsService : TextToSpeechService() {
 		}
 	private fun hasDictionaryEntry(target: EvvEngine, word: String): Boolean {
 		if (lookupEntries(target.language, word).isNotEmpty()) return true
+		if (lookupRootEntries(target.language, word).isNotEmpty()) return true
 		for ((volume, path) in loadedDictionaries) {
 			if ((loadedDictionaryLangs[volume] ?: target.language) != target.language) continue
 			val file = java.io.File(path)
-			if (file.exists() && Dictionaries.isBinary(file) && binaryDictionarySay(target, volume, word) != null) return true
+			if (!file.exists() || !Dictionaries.isBinary(file)) continue
+			if (binaryDictionarySay(target, volume, word) != null) return true
+			if (volume == Eci.DICT_ROOT && rootApostropheStems(word).any {
+					binaryDictionarySay(target, volume, it) != null
+				}
+			) return true
 		}
 		return false
 	}
 	private fun binaryDictionarySay(target: EvvEngine, volume: Int, word: String): String? {
-		val forms = if (isSentenceCapitalized(word)) linkedSetOf(word, word.lowercase()) else linkedSetOf(word)
+		val forms = LinkedHashSet<String>()
+		for (form in apostropheVariants(word)) {
+			forms.add(form)
+			if (isSentenceCapitalized(form)) forms.add(form.lowercase())
+		}
 		for (form in forms) {
 			target.lookUpWord(volume, form)?.let { return it }
 		}
 		return null
 	}
+	/** A root entry applies to a possessive/contraction form as well. Keep the
+	 *  suffix in the text sent to Eloquence: only the root key is taught, so the
+	 *  engine can pronounce the suffix using its own morphology. */
+	private fun rootApostropheStems(word: String): List<String> {
+		val at = word.indexOfAny(charArrayOf('\'', '\u2019'))
+		if (at <= 0 || at == word.lastIndex) return emptyList()
+		val suffix = word.substring(at + 1)
+		if (!suffix.equals("s", ignoreCase = true)) return emptyList()
+		return listOf(word.substring(0, at))
+	}
+	private fun lookupRootEntries(language: Int, word: String): List<DictEntry> =
+		rootApostropheStems(word).flatMap { stem ->
+			lookupEntries(language, stem).filter { it.volume == Eci.DICT_ROOT }
+		}.distinctBy { it.key }
+	private fun apostropheVariants(word: String): Set<String> = linkedSetOf(
+		word,
+		word.replace('\u2019', '\''),
+		word.replace('\'', '\u2019')
+	)
 	private fun restoreDictionaryApostrophes(text: String): String =
 		text.replace(DICT_APOSTROPHE, '\'').replace(DICT_CURLY_APOSTROPHE, '\u2019')
 
@@ -399,11 +428,14 @@ class EvvTtsService : TextToSpeechService() {
 	 *  Prefer MAIN over ROOT when several volumes match. */
 	private fun lookupEntries(language: Int, word: String): List<DictEntry> {
 		val entries = wordMaps[language] ?: return emptyList()
-		val exact = entries[word] ?: entries[word + "."]
-		if (exact != null) return exact
+		for (form in apostropheVariants(word)) {
+			(entries[form] ?: entries[form + "."])?.let { return it }
+		}
 		if (!isSentenceCapitalized(word)) return emptyList()
-		val lower = word.lowercase()
-		return entries[lower] ?: entries[lower + "."] ?: emptyList()
+		for (form in apostropheVariants(word.lowercase())) {
+			(entries[form] ?: entries[form + "."])?.let { return it }
+		}
+		return emptyList()
 	}
 	private fun isSentenceCapitalized(word: String): Boolean =
 		word.isNotEmpty() && word[0].isUpperCase() && word.drop(1).none { it.isUpperCase() }
@@ -447,7 +479,8 @@ class EvvTtsService : TextToSpeechService() {
 		if (wordMaps.isEmpty() || text.isEmpty()) return
 		for (raw in WORD.findAll(text)) {
 			val word = raw.value
-			val hits = lookupEntries(target.language, word)
+			val hits = (lookupEntries(target.language, word) + lookupRootEntries(target.language, word))
+				.distinctBy { it.volume to it.key }
 			if (hits.isEmpty()) continue
 			for (entry in hits) {
 				val say = if (entry.say.startsWith("[") && entry.say.endsWith("]") && !entry.say.startsWith("`[")) {
