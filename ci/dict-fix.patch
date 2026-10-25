@@ -43,7 +43,7 @@
  				}
  			}
  		}, "evvdroid-teach").apply { isDaemon = true }.start()
-@@ -325,31 +339,46 @@
+@@ -325,32 +339,53 @@
  	 *  utterance usually teaches nothing, and a new word costs one call:
  	 *  a sixty-thousand-word file slows the utterance that first needs a
  	 *  word of it, never the one that picks it. */
@@ -107,7 +107,7 @@
  				}
  			}
  		}
-@@ -442,10 +471,10 @@
+@@ -442,10 +477,10 @@
  			)
  			// The user's own rewrites go last, closest to the engine, so what is
  			// written in the regex dictionary is what gets said.
@@ -122,7 +122,7 @@
  			if (text.isEmpty()) continue
  			val pieces = TextPieces.split(text)
  			for ((at, part) in pieces.withIndex()) {
-@@ -593,7 +622,7 @@
+@@ -593,7 +628,7 @@
  		const val MAX_CHUNK = 4096
  		const val BYTES_PER_SAMPLE = 2
  		/** How much audio may sit ahead of the speech, so that the track never
