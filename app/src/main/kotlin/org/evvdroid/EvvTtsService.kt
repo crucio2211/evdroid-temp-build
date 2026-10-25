@@ -227,7 +227,13 @@ class EvvTtsService : TextToSpeechService() {
 	 *  block reading, so everything registered goes in up front and the
 	 *  per-word path stays as backup for stragglers. */
 	private fun loadDictionaries(target: EvvEngine, s: Settings) {
-		val want = s.dictionaryPaths().filterKeys { s.useDictionary(it) }
+		// The engine flag below controls its built-in abbreviation list. Keep
+		// the user's abbreviation volume behind the same switch: otherwise a
+		// custom enuabbr dictionary still expands entries such as `jan` when
+		// the setting is off.
+		val want = s.dictionaryPaths().filterKeys {
+			s.useDictionary(it) && (it != Eci.DICT_ABBREVIATION || s.abbreviations)
+		}
 		val langs = want.keys.associateWith { s.dictionaryLanguageResolved(it, EvvEngine.available) }
 		if (want == loadedDictionaries && langs == loadedDictionaryLangs && target === loadedEngine) return
 		target.forgetDictionaries()
