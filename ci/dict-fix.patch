@@ -35,24 +35,20 @@
  
  	/** Every registered word into the engine up front, off the synthesis
  	 *  thread, each to the volumes it belongs in. Stops early if the
-@@ -316,6 +328,9 @@
+@@ -316,6 +328,8 @@
  						taughtWords.add(key)
  					}
  					calls++
-+					// Yield so synthesis can take the engine lock (root + abbr
-+					// used to monopolize it and hang the app).
 +					if (calls % 50 == 0) Thread.yield()
  				}
  			}
  		}, "evvdroid-teach").apply { isDaemon = true }.start()
-@@ -325,31 +340,51 @@
+@@ -325,31 +339,46 @@
  	 *  utterance usually teaches nothing, and a new word costs one call:
  	 *  a sixty-thousand-word file slows the utterance that first needs a
  	 *  word of it, never the one that picks it. */
 +	/** Rewrites words the user dictionaries know into their "say" form
-+	 *  (respelling or inline phonemes) before the engine sees them. That way
-+	 *  the first encounter is correct: teaching alone was racing the
-+	 *  utterance and the first pass still used the built-in pronunciation. */
++	 *  before the engine sees them, so the first encounter is correct. */
 +	private fun applyDictionary(language: Int, text: String): String {
 +		if (text.isEmpty() || wordMaps.isEmpty()) return text
 +		val entries = wordMaps[language] ?: return text
@@ -64,13 +60,14 @@
 +				?: byLower?.get(word.lowercase())
 +				?: byLower?.get(word.lowercase() + ".")
 +				?: return@replace word
-+			// Prefer root/main over abbreviation when several volumes match.
 +			val entry = hits.minByOrNull { it.volume } ?: return@replace word
 +			entry.say
 +		}
 +	}
 +
  	private fun teachUnknownWords(target: EvvEngine, text: String) {
++		// Kept for background backup only; synthesis uses applyDictionary
++		// and must not call teachWord on the speech thread (typing lag).
  		if (wordMaps.isEmpty() || text.isEmpty()) return
  		val entries = wordMaps[target.language] ?: return
 +		val byLower = wordMapsLower[target.language] ?: emptyMap()
@@ -90,28 +87,27 @@
  				for (volume in teachVolumes(entry.volume)) {
 -					val key = volume to entry.key
 -					if (key in taughtWords) continue
-+					val form = word
-+					val k = volume to form
++					val k = volume to word
 +					if (k in taughtWords) continue
  					try {
 -						if (target.teachWord(volume, entry.key, entry.say) == 0) {
 -							taughtWords.add(key)
-+						if (target.teachWord(volume, form, entry.say) == 0) {
-+							taughtWords.add(k)
- 						} else {
+-						} else {
 -							// Refused once, refused always: do not ask again.
 -							taughtWords.add(key)
 -							Log.e(TAG, "volume $volume refused ${entry.key}")
-+							taughtWords.add(k)
- 						}
- 					} catch (failed: Exception) {
+-						}
+-					} catch (failed: Exception) {
 -						Log.e(TAG, "volume $volume would not take ${entry.key}", failed)
 -						taughtWords.add(key)
-+						taughtWords.add(k)
++						target.teachWord(volume, word, entry.say)
++					} catch (_: Exception) {
  					}
++					taughtWords.add(k)
  				}
  			}
-@@ -442,10 +477,11 @@
+ 		}
+@@ -442,10 +471,10 @@
  			)
  			// The user's own rewrites go last, closest to the engine, so what is
  			// written in the regex dictionary is what gets said.
@@ -120,10 +116,20 @@
 -			// meeting them below.
 -			teachUnknownWords(target, text)
 +			val afterRegex = if (regexEnabled) RegexDictionaries.apply(loadedRegex, fixed) else fixed
-+			// Inline the user's dictionary so the first encounter is already
-+			// correct (teach-alone left the first pass on the built-in sound).
++			// Inline dictionary on the text path only — no teachWord on the
++			// synthesis thread (that was the typing lag).
 +			val text = applyDictionary(target.language, afterRegex)
-+			teachUnknownWords(target, afterRegex)
  			if (text.isEmpty()) continue
  			val pieces = TextPieces.split(text)
  			for ((at, part) in pieces.withIndex()) {
+@@ -593,7 +622,7 @@
+ 		const val MAX_CHUNK = 4096
+ 		const val BYTES_PER_SAMPLE = 2
+ 		/** How much audio may sit ahead of the speech, so that the track never
+-		 *  runs dry while the engine is held back. */
+-		const val LEAD_MS = 300L
++		 *  runs dry while the engine is held back. Lower for typing latency. */
++		const val LEAD_MS = 120L
+ 		const val SLICE_MS = 20L
+ 	}
+ }
