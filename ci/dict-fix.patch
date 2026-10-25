@@ -1,0 +1,72 @@
+--- a/app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
++++ b/app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
+@@ -290,7 +290,7 @@
+ 	 *  files teach the rest as spoken through [teachUnknownWords],
+ 	 *  which also matches a closing period, so capping never strands
+ 	 *  an abbreviation the eager pass did not reach. */
+-	private val MAX_EAGER_TEACH = 5000
++	private val MAX_EAGER_TEACH = 100_000
+ 
+ 	/** Every registered word into the engine up front, off the synthesis
+ 	 *  thread, each to the volumes it belongs in. Stops early if the
+@@ -316,6 +316,11 @@
+ 						taughtWords.add(key)
+ 					}
+ 					calls++
++					// Yield so synthesis can take the engine lock (root + abbr
++					// used to monopolize it and hang the app).
++					if (calls % 100 == 0) {
++						try { Thread.sleep(1) } catch (_: InterruptedException) { return@Thread }
++					}
+ 				}
+ 			}
+ 		}, "evvdroid-teach").apply { isDaemon = true }.start()
+@@ -328,28 +333,34 @@
+ 	private fun teachUnknownWords(target: EvvEngine, text: String) {
+ 		if (wordMaps.isEmpty() || text.isEmpty()) return
+ 		val entries = wordMaps[target.language] ?: return
++		// Case-insensitive index: dict keys are often lowercase while TalkBack
++		// sends Title Case. Teach the spoken form so the engine matches.
++		val byLower = HashMap<String, MutableList<DictEntry>>()
++		for ((exact, list) in entries) {
++			byLower.getOrPut(exact.lowercase()) { mutableListOf() }.addAll(list)
++		}
+ 		for (raw in WORD.findAll(text)) {
+-			// The word as spoken, case and all: the engine matches the key
+-			// the same way, so a key written in another case is another entry.
+ 			val word = raw.value
+-			// The word finder leaves a closing period behind, so an
+-			// abbreviation matches twice: as written and dotted.
+-			val hits = entries[word] ?: entries[word + "."] ?: continue
++			val hits = entries[word]
++				?: entries[word + "."]
++				?: byLower[word.lowercase()]
++				?: byLower[word.lowercase() + "."]
++				?: continue
+ 			for (entry in hits) {
+ 				for (volume in teachVolumes(entry.volume)) {
+-					val key = volume to entry.key
+-					if (key in taughtWords) continue
++					val form = word
++					val k = volume to form
++					if (k in taughtWords) continue
+ 					try {
+-						if (target.teachWord(volume, entry.key, entry.say) == 0) {
+-							taughtWords.add(key)
++						if (target.teachWord(volume, form, entry.say) == 0) {
++							taughtWords.add(k)
+ 						} else {
+-							// Refused once, refused always: do not ask again.
+-							taughtWords.add(key)
+-							Log.e(TAG, "volume $volume refused ${entry.key}")
++							taughtWords.add(k)
++							Log.e(TAG, "volume $volume refused $form")
+ 						}
+ 					} catch (failed: Exception) {
+-						Log.e(TAG, "volume $volume would not take ${entry.key}", failed)
+-						taughtWords.add(key)
++						Log.e(TAG, "volume $volume would not take $form", failed)
++						taughtWords.add(k)
+ 					}
+ 				}
+ 			}
