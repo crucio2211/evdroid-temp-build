@@ -1,19 +1,19 @@
-hetero: fork table kept; the produce fallback matches the desktop ETI reading
+hetero: restore the contextual produce noun reading
 
-The fork's grammar table stays for the upstream rows. The desktop heteronym
-filter forces produce through the same ETI spelling; persona and personas
-keep their forced readings. Quality/address stay out by decision and jose
-reads from its dict.
+The engine already reads produce as a verb. Restore the documented noun
+annotation for noun contexts, and let the engine keep its verb reading
+elsewhere. Persona and personas keep their forced readings. Quality/address
+stay out by decision and jose reads from its dict.
 High bytes count as word bytes. Applied at build time.
 diff --git a/src/eci/hetero/eci_hetero.c b/src/eci/hetero/eci_hetero.c
 index d75b837..5905e7a 100644
 --- a/src/eci/hetero/eci_hetero.c
 +++ b/src/eci/hetero/eci_hetero.c
-@@ -77,14 +77,6 @@ static const Hetero words[] = {
+@@ -77,14 +77,8 @@ static const Hetero words[] = {
      { "digest",     0,                    "`[.0dX.1JEst]"        },
      { "export",     0,                    "`[.0Ek.1spcrt]"       },
      { "exports",    0,                    "`[.0Ek.1spcrts]"      },
--    { "produce",    "`[.1pro.0dus]",      0                      },
+     { "produce",    "`[.1pro.0dus]",      0                      },
 -    { "quality",    "`[kw1clIti]",         0                      },
 -    { "qualities",  "`[kw1clItiz]",        0                      },
 -    { "persona",    "`[pxrs1onx]",         0                      },
@@ -24,7 +24,7 @@ index d75b837..5905e7a 100644
      { "transfer",   0,                    "`[.0trAns.1fR]"       },
      { "transfers",  0,                    "`[.0trAns.1fRz]"      },
      { "transplant", 0,                    "`[.0trAnz.1plAnt]"    },
-@@ -94,6 +86,26 @@ static const Hetero words[] = {
+@@ -94,6 +88,25 @@ static const Hetero words[] = {
  
  #define WORDS (int)(sizeof words / sizeof words[0])
  
@@ -41,7 +41,6 @@ index d75b837..5905e7a 100644
 +} Forced;
 +
 +static const Forced forced[] = {
-+    { "produce",   "`[.0pro.1du.0Te]" },
 +    { "persona",   "`[.0pR.1so.0nx]" },
 +    { "personas",  "`[.0pR.1so.0nxz]" },
 +};

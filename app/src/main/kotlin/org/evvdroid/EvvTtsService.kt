@@ -750,7 +750,7 @@ class EvvTtsService : TextToSpeechService() {
 		const val BYTES_PER_SAMPLE = 2
 		/** How much audio may sit ahead of the speech, so that the track never
 		 *  runs dry while the engine is held back. */
-		const val LEAD_MS = 40L
+		const val LEAD_MS = 300L
 		const val SLICE_MS = 20L
 	}
 }
