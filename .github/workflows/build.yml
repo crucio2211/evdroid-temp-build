@@ -31,14 +31,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Restore EvvTtsService and apply dict fix
+      - name: Restore sources and apply fixes
         run: |
           git show 800a9b60ab6e5a0491bce180d90a6be877bb41d3:app/src/main/kotlin/org/evvdroid/EvvTtsService.kt > app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
+          # Prefer clean upstream punctuation if history has it
+          git show 800a9b60ab6e5a0491bce180d90a6be877bb41d3:app/src/main/kotlin/org/evvdroid/PunctuationProcessing.kt > app/src/main/kotlin/org/evvdroid/PunctuationProcessing.kt 2>/dev/null || true
           patch -p1 < ci/dict-fix.patch
-          grep -q 'MAX_EAGER_TEACH = 100_000' app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
+          patch -p1 < ci/punct-fix.patch
           grep -q 'applyDictionary' app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
-          grep -q 'wordMapsLower' app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
-          echo "dict fix v2 applied (inline rewrite + latency)"
+          grep -q 'LEAD_MS = 120L' app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
+          grep -q 'isFileExtensionDot' app/src/main/kotlin/org/evvdroid/PunctuationProcessing.kt
+          echo "latency + extension fixes applied"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
