@@ -81,9 +81,7 @@
  				for (volume in teachVolumes(entry.volume)) {
 -					val key = volume to entry.key
 -					if (key in taughtWords) continue
-+					val k = volume to word
-+					if (k in taughtWords) continue
- 					try {
+-					try {
 -						if (target.teachWord(volume, entry.key, entry.say) == 0) {
 -							taughtWords.add(key)
 -						} else {
@@ -94,16 +92,17 @@
 -					} catch (failed: Exception) {
 -						Log.e(TAG, "volume $volume would not take ${entry.key}", failed)
 -						taughtWords.add(key)
-+						target.teachWord(volume, word, entry.say)
-+					} catch (_: Exception) {
- 					}
+-					}
++					val k = volume to word
++					if (k in taughtWords) continue
++					try { target.teachWord(volume, word, entry.say) } catch (_: Exception) {}
 +					taughtWords.add(k)
  				}
  			}
  		}
 @@ -418,6 +436,9 @@
- 		// over all of it is what kept big text waiting.
- 		val rawPieces = TextPieces.split(raw)
+ 		// what made dragging across a launcher go quiet. RHVoice opens the same
+ 		// way, from inside its player rather than ahead of it.
  		val opening = Opening(callback, target.sampleRateHz)
 +		// Code Factory opens the stream before speak so the framework is ready
 +		// when the first sample arrives (lower perceived latency on typing).
@@ -130,7 +129,7 @@
  		/** How much audio may sit ahead of the speech, so that the track never
 -		 *  runs dry while the engine is held back. */
 -		const val LEAD_MS = 300L
-+		 *  runs dry while the engine is held back. CF-style: keep lead small. */
++		 *  runs dry while the engine is held back. CF-style lead for typing. */
 +		const val LEAD_MS = 40L
  		const val SLICE_MS = 20L
  	}
