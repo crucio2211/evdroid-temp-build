@@ -1,6 +1,32 @@
 --- a/app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
 +++ b/app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
-@@ -290,7 +290,7 @@
+@@ -43,6 +43,9 @@
+ 	 *  teacher below. */
+ 	private data class DictEntry(val volume: Int, val key: String, val say: String)
+ 	private var wordMaps: Map<Int, Map<String, List<DictEntry>>> = emptyMap()
++	/** Lowercase index of [wordMaps], rebuilt when dictionaries are read so
++	 *  each utterance does not rebuild it (that was latency on every speak). */
++	private var wordMapsLower: Map<Int, Map<String, List<DictEntry>>> = emptyMap()
+ 	private val taughtWords = java.util.concurrent.ConcurrentHashMap.newKeySet<Pair<Int, String>>()
+ 
+ 	/** Words as the engine meets them: letters and digits carrying their
+@@ -253,6 +256,15 @@
+ 				}
+ 			}
+ 			wordMaps = read
++			val lower = LinkedHashMap<Int, Map<String, List<DictEntry>>>()
++			for ((lang, entries) in read) {
++				val by = HashMap<String, MutableList<DictEntry>>()
++				for ((exact, list) in entries) {
++					by.getOrPut(exact.lowercase()) { mutableListOf() }.addAll(list)
++				}
++				lower[lang] = by
++			}
++			wordMapsLower = lower
+ 		}
+ 		taughtWords.clear()
+ 		loadedDictionaries = want
+@@ -290,7 +302,7 @@
  	 *  files teach the rest as spoken through [teachUnknownWords],
  	 *  which also matches a closing period, so capping never strands
  	 *  an abbreviation the eager pass did not reach. */
@@ -9,28 +35,45 @@
  
  	/** Every registered word into the engine up front, off the synthesis
  	 *  thread, each to the volumes it belongs in. Stops early if the
-@@ -316,6 +316,11 @@
+@@ -316,6 +328,9 @@
  						taughtWords.add(key)
  					}
  					calls++
 +					// Yield so synthesis can take the engine lock (root + abbr
 +					// used to monopolize it and hang the app).
-+					if (calls % 100 == 0) {
-+						try { Thread.sleep(1) } catch (_: InterruptedException) { return@Thread }
-+					}
++					if (calls % 50 == 0) Thread.yield()
  				}
  			}
  		}, "evvdroid-teach").apply { isDaemon = true }.start()
-@@ -328,28 +333,34 @@
+@@ -325,31 +340,51 @@
+ 	 *  utterance usually teaches nothing, and a new word costs one call:
+ 	 *  a sixty-thousand-word file slows the utterance that first needs a
+ 	 *  word of it, never the one that picks it. */
++	/** Rewrites words the user dictionaries know into their "say" form
++	 *  (respelling or inline phonemes) before the engine sees them. That way
++	 *  the first encounter is correct: teaching alone was racing the
++	 *  utterance and the first pass still used the built-in pronunciation. */
++	private fun applyDictionary(language: Int, text: String): String {
++		if (text.isEmpty() || wordMaps.isEmpty()) return text
++		val entries = wordMaps[language] ?: return text
++		val byLower = wordMapsLower[language]
++		return WORD.replace(text) { match ->
++			val word = match.value
++			val hits = entries[word]
++				?: entries[word + "."]
++				?: byLower?.get(word.lowercase())
++				?: byLower?.get(word.lowercase() + ".")
++				?: return@replace word
++			// Prefer root/main over abbreviation when several volumes match.
++			val entry = hits.minByOrNull { it.volume } ?: return@replace word
++			entry.say
++		}
++	}
++
  	private fun teachUnknownWords(target: EvvEngine, text: String) {
  		if (wordMaps.isEmpty() || text.isEmpty()) return
  		val entries = wordMaps[target.language] ?: return
-+		// Case-insensitive index: dict keys are often lowercase while TalkBack
-+		// sends Title Case. Teach the spoken form so the engine matches.
-+		val byLower = HashMap<String, MutableList<DictEntry>>()
-+		for ((exact, list) in entries) {
-+			byLower.getOrPut(exact.lowercase()) { mutableListOf() }.addAll(list)
-+		}
++		val byLower = wordMapsLower[target.language] ?: emptyMap()
  		for (raw in WORD.findAll(text)) {
 -			// The word as spoken, case and all: the engine matches the key
 -			// the same way, so a key written in another case is another entry.
@@ -60,13 +103,27 @@
 -							taughtWords.add(key)
 -							Log.e(TAG, "volume $volume refused ${entry.key}")
 +							taughtWords.add(k)
-+							Log.e(TAG, "volume $volume refused $form")
  						}
  					} catch (failed: Exception) {
 -						Log.e(TAG, "volume $volume would not take ${entry.key}", failed)
 -						taughtWords.add(key)
-+						Log.e(TAG, "volume $volume would not take $form", failed)
 +						taughtWords.add(k)
  					}
  				}
  			}
+@@ -442,10 +477,11 @@
+ 			)
+ 			// The user's own rewrites go last, closest to the engine, so what is
+ 			// written in the regex dictionary is what gets said.
+-			val text = if (regexEnabled) RegexDictionaries.apply(loadedRegex, fixed) else fixed
+-			// Words the dictionaries know are taught now, ahead of the engine
+-			// meeting them below.
+-			teachUnknownWords(target, text)
++			val afterRegex = if (regexEnabled) RegexDictionaries.apply(loadedRegex, fixed) else fixed
++			// Inline the user's dictionary so the first encounter is already
++			// correct (teach-alone left the first pass on the built-in sound).
++			val text = applyDictionary(target.language, afterRegex)
++			teachUnknownWords(target, afterRegex)
+ 			if (text.isEmpty()) continue
+ 			val pieces = TextPieces.split(text)
+ 			for ((at, part) in pieces.withIndex()) {
