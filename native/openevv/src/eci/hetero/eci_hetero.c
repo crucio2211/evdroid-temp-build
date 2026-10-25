@@ -87,6 +87,20 @@ static const Hetero words[] = {
 
 #define WORDS (int)(sizeof words / sizeof words[0])
 
+/* Keep the existing fixed readings for persona names. `produce` is not
+   forced here: it is handled only by the contextual heteronym table. */
+typedef struct {
+    const char *word;
+    const char *say;
+} Forced;
+
+static const Forced forced[] = {
+    { "persona",  "`[.0pR.1so.0nx]" },
+    { "personas", "`[.0pR.1so.0nxz]" },
+};
+
+#define FORCED (int)(sizeof forced / sizeof forced[0])
+
 /* What the word before says about what this one is.
  *
  * The engine's own test looks no further than one word back and neither does
@@ -140,6 +154,18 @@ static int which(const char *at, size_t n)
     return -1;
 }
 
+/* Which fixed-reading word this is, or -1. */
+static int which_forced(const char *at, size_t n)
+{
+    int i;
+
+    for (i = 0; i < FORCED; i++)
+        if (strlen(forced[i].word) == n
+            && strncasecmp(forced[i].word, at, n) == 0)
+            return i;
+    return -1;
+}
+
 /* The word before the one at `at', as an offset and a length. Answers 0 when
    there is none. */
 static const char *word_before(const char *text, const char *at, size_t *n)
@@ -171,6 +197,12 @@ static size_t room_for(const char *text)
             most = a;
         if (b > most)
             most = b;
+    }
+    for (i = 0; i < FORCED; i++) {
+        size_t a = strlen(forced[i].say);
+
+        if (a > most)
+            most = a;
     }
     return strlen(text) * (most + 2) + 1;
 }
@@ -212,6 +244,18 @@ char *hetero_rewrite(const char *text)
                 say = words[w].verb;
 
             if (say != 0) {
+                memcpy(out + at, say, strlen(say));
+                at += strlen(say);
+                continue;
+            }
+        }
+        /* Preserve the existing fixed readings for persona/personas. */
+        {
+            int f = which_forced(start, n);
+
+            if (f >= 0) {
+                const char *say = forced[f].say;
+
                 memcpy(out + at, say, strlen(say));
                 at += strlen(say);
                 continue;
