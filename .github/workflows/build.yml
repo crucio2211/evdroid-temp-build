@@ -48,11 +48,30 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Restore EvvTtsService from last good commit
+      - name: Restore EvvTtsService and apply large-dict fix
         run: |
           git show 800a9b60ab6e5a0491bce180d90a6be877bb41d3:app/src/main/kotlin/org/evvdroid/EvvTtsService.kt > app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
           test -s app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
           grep -q 'class EvvTtsService' app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
+          python3 << 'PY'
+          from pathlib import Path
+          p = Path('app/src/main/kotlin/org/evvdroid/EvvTtsService.kt')
+          t = p.read_text()
+          t = t.replace('private val MAX_EAGER_TEACH = 5000', 'private val MAX_EAGER_TEACH = 200_000')
+          old = '''\tprivate fun teachUnknownWords(target: EvvEngine, text: String) {\n\t\tif (wordMaps.isEmpty() || text.isEmpty()) return\n\t\tval entries = wordMaps[target.language] ?: return\n\t\tfor (raw in WORD.findAll(text)) {\n\t\t\t// The word as spoken, case and all: the engine matches the key\n\t\t\t// the same way, so a key written in another case is another entry.\n\t\t\tval word = raw.value\n\t\t\t// The word finder leaves a closing period behind, so an\n\t\t\t// abbreviation matches twice: as written and dotted.\n\t\t\tval hits = entries[word] ?: entries[word + "."] ?: continue\n\t\t\tfor (entry in hits) {\n\t\t\t\tfor (volume in teachVolumes(entry.volume)) {\n\t\t\t\t\tval key = volume to entry.key\n\t\t\t\t\tif (key in taughtWords) continue\n\t\t\t\t\ttry {\n\t\t\t\t\t\tif (target.teachWord(volume, entry.key, entry.say) == 0) {\n\t\t\t\t\t\t\ttaughtWords.add(key)\n\t\t\t\t\t\t} else {\n\t\t\t\t\t\t\t// Refused once, refused always: do not ask again.\n\t\t\t\t\t\t\ttaughtWords.add(key)\n\t\t\t\t\t\t\tLog.e(TAG, "volume $volume refused ${entry.key}")\n\t\t\t\t\t\t}\n\t\t\t\t\t} catch (failed: Exception) {\n\t\t\t\t\t\tLog.e(TAG, "volume $volume would not take ${entry.key}", failed)\n\t\t\t\t\t\ttaughtWords.add(key)\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}'''
+          new = '''\tprivate fun teachUnknownWords(target: EvvEngine, text: String) {\n\t\tif (wordMaps.isEmpty() || text.isEmpty()) return\n\t\tval entries = wordMaps[target.language] ?: return\n\t\tval byLower = HashMap<String, MutableList<DictEntry>>()\n\t\tfor ((exact, list) in entries) {\n\t\t\tbyLower.getOrPut(exact.lowercase()) { mutableListOf() }.addAll(list)\n\t\t}\n\t\tfor (raw in WORD.findAll(text)) {\n\t\t\tval word = raw.value\n\t\t\tval hits = entries[word]\n\t\t\t\t?: entries[word + "."]\n\t\t\t\t?: byLower[word.lowercase()]\n\t\t\t\t?: byLower[word.lowercase() + "."]\n\t\t\t\t?: continue\n\t\t\tfor (entry in hits) {\n\t\t\t\tfor (volume in teachVolumes(entry.volume)) {\n\t\t\t\t\tval forms = linkedSetOf(word, entry.key)\n\t\t\t\t\tfor (form in forms) {\n\t\t\t\t\t\tval k = volume to form\n\t\t\t\t\t\tif (k in taughtWords) continue\n\t\t\t\t\t\ttry {\n\t\t\t\t\t\t\tif (target.teachWord(volume, form, entry.say) == 0) {\n\t\t\t\t\t\t\t\ttaughtWords.add(k)\n\t\t\t\t\t\t\t} else {\n\t\t\t\t\t\t\t\ttaughtWords.add(k)\n\t\t\t\t\t\t\t\tLog.e(TAG, "volume $volume refused $form")\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t} catch (failed: Exception) {\n\t\t\t\t\t\t\tLog.e(TAG, "volume $volume would not take $form", failed)\n\t\t\t\t\t\t\ttaughtWords.add(k)\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}'''
+          if old not in t:
+              raise SystemExit('teachUnknownWords block not found')
+          t = t.replace(old, new, 1)
+          old2 = '''\t\t\t\t\ttry {\n\t\t\t\t\t\tval rc = target.teachWord(volume, entry.key, entry.say)\n\t\t\t\t\t\ttaughtWords.add(key)\n\t\t\t\t\t\tif (rc != 0) Log.e(TAG, "volume $volume refused ${entry.key}")\n\t\t\t\t\t} catch (failed: Exception) {\n\t\t\t\t\t\tLog.e(TAG, "volume $volume would not take ${entry.key}", failed)\n\t\t\t\t\t\ttaughtWords.add(key)\n\t\t\t\t\t}\n\t\t\t\t\tcalls++'''
+          new2 = '''\t\t\t\t\ttry {\n\t\t\t\t\t\tval forms = linkedSetOf(entry.key, entry.key.lowercase())\n\t\t\t\t\t\tfor (form in forms) {\n\t\t\t\t\t\t\tval fk = volume to form\n\t\t\t\t\t\t\tif (fk in taughtWords) continue\n\t\t\t\t\t\t\tval rc = target.teachWord(volume, form, entry.say)\n\t\t\t\t\t\t\ttaughtWords.add(fk)\n\t\t\t\t\t\t\tif (rc != 0) Log.e(TAG, "volume $volume refused $form")\n\t\t\t\t\t\t\tcalls++\n\t\t\t\t\t\t\tif (calls >= MAX_EAGER_TEACH) return@Thread\n\t\t\t\t\t\t}\n\t\t\t\t\t} catch (failed: Exception) {\n\t\t\t\t\t\tLog.e(TAG, "volume $volume would not take ${entry.key}", failed)\n\t\t\t\t\t\ttaughtWords.add(key)\n\t\t\t\t\t\tcalls++\n\t\t\t\t\t}'''
+          if old2 not in t:
+              raise SystemExit('teachAllWords block not found')
+          t = t.replace(old2, new2, 1)
+          p.write_text(t)
+          assert '200_000' in t and 'byLower' in t
+          print('dict fix applied: MAX_EAGER=200000, case-insensitive teach')
+          PY
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
@@ -63,9 +82,6 @@ jobs:
       - name: Set up Gradle caching
         uses: gradle/actions/setup-gradle@v4
 
-      # No setup-android step: ubuntu-latest runners already ship the SDK
-      # (ANDROID_HOME + cmdline-tools on PATH). The v3 action breaks the
-      # build by asking sdkmanager for the long-removed 'tools' package.
       - name: Install the NDK
         run: |
           export ANDROID_HOME="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
@@ -87,23 +103,15 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build the release APK and compile the device checks
-        # versionCode runs far ahead of every build ever shipped: the temp
-        # build host restarts its run numbers at 1, so a raw run number
-        # would read as a downgrade next to an installed build and Android
-        # would refuse it with "app not installed".
         run: ./gradlew assembleRelease assembleDebugAndroidTest -Pevvdroid.abis="$EVVDROID_ABIS" -Pevvdroid.minify=true -Pevvdroid.legacyPackaging=true -Pevvdroid.rules=bytecode -Pevvdroid.langs="$EVVDROID_LANGS" -Pevvdroid.versionCode="$((1000000 + GITHUB_RUN_NUMBER))" -Pevvdroid.keystore="$EVVDROID_KEYSTORE" -Pevvdroid.storePass="${{ secrets.EVVDROID_STORE_PASS }}" -Pevvdroid.keyPass="${{ secrets.EVVDROID_KEY_PASS }}" --stacktrace
 
       - name: Upload the APK
         uses: actions/upload-artifact@v4
-        # Quota failures must not block the rolling release below.
         continue-on-error: true
         with:
           name: evvdroid-release
           path: app/build/outputs/apk/release/*.apk
 
-      # Rolling release holding the newest main-branch APK. Release assets do
-      # not count against the Actions artifact quota, so the APK stays
-      # downloadable even when that quota is hit.
       - name: Publish the APK to the rolling release
         if: github.ref == 'refs/heads/main' && success()
         env:
