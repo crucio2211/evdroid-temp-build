@@ -1,16 +1,14 @@
 --- a/app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
 +++ b/app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
-@@ -43,6 +43,9 @@
+@@ -43,6 +43,7 @@
  	 *  teacher below. */
  	private data class DictEntry(val volume: Int, val key: String, val say: String)
  	private var wordMaps: Map<Int, Map<String, List<DictEntry>>> = emptyMap()
-+	/** Lowercase index of [wordMaps], rebuilt when dictionaries are read so
-+	 *  each utterance does not rebuild it (that was latency on every speak). */
 +	private var wordMapsLower: Map<Int, Map<String, List<DictEntry>>> = emptyMap()
  	private val taughtWords = java.util.concurrent.ConcurrentHashMap.newKeySet<Pair<Int, String>>()
  
  	/** Words as the engine meets them: letters and digits carrying their
-@@ -253,6 +256,15 @@
+@@ -253,6 +254,15 @@
  				}
  			}
  			wordMaps = read
@@ -26,7 +24,7 @@
  		}
  		taughtWords.clear()
  		loadedDictionaries = want
-@@ -290,7 +302,7 @@
+@@ -290,7 +300,7 @@
  	 *  files teach the rest as spoken through [teachUnknownWords],
  	 *  which also matches a closing period, so capping never strands
  	 *  an abbreviation the eager pass did not reach. */
@@ -35,7 +33,7 @@
  
  	/** Every registered word into the engine up front, off the synthesis
  	 *  thread, each to the volumes it belongs in. Stops early if the
-@@ -316,6 +328,7 @@
+@@ -316,6 +326,7 @@
  						taughtWords.add(key)
  					}
  					calls++
@@ -43,12 +41,10 @@
  				}
  			}
  		}, "evvdroid-teach").apply { isDaemon = true }.start()
-@@ -325,32 +338,46 @@
+@@ -325,32 +336,39 @@
  	 *  utterance usually teaches nothing, and a new word costs one call:
  	 *  a sixty-thousand-word file slows the utterance that first needs a
  	 *  word of it, never the one that picks it. */
-+	/** Rewrites words the user dictionaries know into their "say" form
-+	 *  before the engine sees them, so the first encounter is correct. */
 +	private fun applyDictionary(language: Int, text: String): String {
 +		if (text.isEmpty() || wordMaps.isEmpty()) return text
 +		val entries = wordMaps[language] ?: return text
@@ -66,8 +62,6 @@
 +	}
 +
  	private fun teachUnknownWords(target: EvvEngine, text: String) {
-+		// Kept for background backup only; synthesis uses applyDictionary
-+		// and must not call teachWord on the speech thread (typing lag).
  		if (wordMaps.isEmpty() || text.isEmpty()) return
  		val entries = wordMaps[target.language] ?: return
 +		val byLower = wordMapsLower[target.language] ?: emptyMap()
@@ -107,7 +101,17 @@
  				}
  			}
  		}
-@@ -442,10 +469,10 @@
+@@ -418,6 +436,9 @@
+ 		// over all of it is what kept big text waiting.
+ 		val rawPieces = TextPieces.split(raw)
+ 		val opening = Opening(callback, target.sampleRateHz)
++		// Code Factory opens the stream before speak so the framework is ready
++		// when the first sample arrives (lower perceived latency on typing).
++		opening.open()
+ 		val pace = Pace(target.sampleRateHz * BYTES_PER_SAMPLE)
+ 		// Piece by piece, so that asking for silence waits out a piece rather
+ 		// than the whole message: the engine cannot abandon what it is saying.
+@@ -442,10 +463,8 @@
  			)
  			// The user's own rewrites go last, closest to the engine, so what is
  			// written in the regex dictionary is what gets said.
@@ -116,20 +120,18 @@
 -			// meeting them below.
 -			teachUnknownWords(target, text)
 +			val afterRegex = if (regexEnabled) RegexDictionaries.apply(loadedRegex, fixed) else fixed
-+			// Inline dictionary on the text path only — no teachWord on the
-+			// synthesis thread (that was the typing lag).
 +			val text = applyDictionary(target.language, afterRegex)
  			if (text.isEmpty()) continue
  			val pieces = TextPieces.split(text)
  			for ((at, part) in pieces.withIndex()) {
-@@ -593,7 +620,7 @@
+@@ -593,7 +612,7 @@
  		const val MAX_CHUNK = 4096
  		const val BYTES_PER_SAMPLE = 2
  		/** How much audio may sit ahead of the speech, so that the track never
 -		 *  runs dry while the engine is held back. */
 -		const val LEAD_MS = 300L
-+		 *  runs dry while the engine is held back. Lower for typing latency. */
-+		const val LEAD_MS = 80L
++		 *  runs dry while the engine is held back. CF-style: keep lead small. */
++		const val LEAD_MS = 40L
  		const val SLICE_MS = 20L
  	}
  }

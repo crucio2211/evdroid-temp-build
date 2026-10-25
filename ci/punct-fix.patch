@@ -1,39 +1,16 @@
 --- a/app/src/main/kotlin/org/evvdroid/PunctuationProcessing.kt
 +++ b/app/src/main/kotlin/org/evvdroid/PunctuationProcessing.kt
-@@ -48,6 +48,12 @@
- 				rep = null
- 				pres = PunctSymbols.PASS
- 			}
-+			// File extension: keep the "." character, but never speak the symbol
-+			// name "dot" — "file.mp3" must not become "file dot mp3" / "d o t mp3".
-+			if (cp == '.'.code && isFileExtensionDot(text, i, adv)) {
+@@ -40,6 +40,13 @@
+ 					pres = entry.pres
+ 					if (entry.level <= level) rep = entry.word
+ 				}
++			}
++			// Period is always handed to the engine as the character itself.
++			// Never expand it to the spoken name "dot" (file.mp3, example.com,
++			// version numbers, etc. were being read as "dot mp3" / "dot com").
++			if (cp == '.'.code) {
 +				rep = null
 +				pres = PunctSymbols.PASS
-+			}
- 			// Sentence boundary .!? : below all it is prosody, not speech.
- 			if (isSentenceMark(cp) && isSentenceEnding(text, i, text.length)) {
- 				if (level < ALL) rep = null
-@@ -71,6 +77,23 @@
- 
- 	private fun pad(out: StringBuilder) {
- 		if (out.isNotEmpty() && !out.last().isWhitespace()) out.append(' ')
-+	}
-+
-+	/** True when [at] is the dot of a short extension like .mp3 or .tar. */
-+	private fun isFileExtensionDot(text: String, at: Int, adv: Int): Boolean {
-+		if (at == 0) return false
-+		if (!text[at - 1].isLetterOrDigit()) return false
-+		var j = at + adv
-+		var n = 0
-+		while (j < text.length && n < 5 && text[j].isLetterOrDigit()) {
-+			j++
-+			n++
-+		}
-+		if (n == 0) return false
-+		val ext = text.substring(at + adv, j)
-+		if (!ext.any { it.isLetter() }) return false
-+		if (j < text.length && text[j].isLetterOrDigit()) return false
-+		return true
- 	}
- 
- 	private fun isSentenceMark(cp: Int): Boolean =
+ 			}
+ 			// Numeric context: . or , between ASCII digits passes as-is.
+ 			if ((cp == '.'.code || cp == ','.code) && i > 0 && i + adv < text.length &&
