@@ -1,16 +1,5 @@
 name: build
 
-# Builds the debug APK and compiles the on-device checks.
-# The engine is cross-compiled by its own Makefile (needs the NDK, Python
-# and make), so this is slower than an ordinary app build: about five
-# minutes of native build before Gradle even takes over.
-#
-# There is deliberately no emulator job: the Linux runners have no nested
-# virtualization and the macOS ones never finish booting this image either,
-# so the instrumented tests are compiled here and run where there is a real
-# device or a working emulator:
-#   ./gradlew connectedDebugAndroidTest -Pevvdroid.abis=arm64-v8a
-
 on:
   push:
     branches: [main]
@@ -42,50 +31,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Restore EvvTtsService and apply dict fixes
+      - name: Restore EvvTtsService and apply dict fix
         run: |
           git show 800a9b60ab6e5a0491bce180d90a6be877bb41d3:app/src/main/kotlin/org/evvdroid/EvvTtsService.kt > app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
-          test -s app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
-          python3 << 'PY'
-          from pathlib import Path
-          p = Path('app/src/main/kotlin/org/evvdroid/EvvTtsService.kt')
-          t = p.read_text()
-
-          # Raise limit so a 65k root dict can load; still yield so the engine
-          # lock is not held for minutes when root + abbr are both taught.
-          t = t.replace(
-              'private val MAX_EAGER_TEACH = 5000',
-              'private val MAX_EAGER_TEACH = 100_000',
-          )
-
-          # Case-insensitive lookup for words TalkBack capitalizes, without
-          # doubling every eager teach (that locked the engine and hung the app
-          # when a second volume such as abbreviations was loaded).
-          old = '''\tprivate fun teachUnknownWords(target: EvvEngine, text: String) {\n\t\tif (wordMaps.isEmpty() || text.isEmpty()) return\n\t\tval entries = wordMaps[target.language] ?: return\n\t\tfor (raw in WORD.findAll(text)) {\n\t\t\t// The word as spoken, case and all: the engine matches the key\n\t\t\t// the same way, so a key written in another case is another entry.\n\t\t\tval word = raw.value\n\t\t\t// The word finder leaves a closing period behind, so an\n\t\t\t// abbreviation matches twice: as written and dotted.\n\t\t\tval hits = entries[word] ?: entries[word + \'.\'] ?: continue\n\t\t\tfor (entry in hits) {\n\t\t\t\tfor (volume in teachVolumes(entry.volume)) {\n\t\t\t\t\tval key = volume to entry.key\n\t\t\t\t\tif (key in taughtWords) continue\n\t\t\t\t\ttry {\n\t\t\t\t\t\tif (target.teachWord(volume, entry.key, entry.say) == 0) {\n\t\t\t\t\t\t\ttaughtWords.add(key)\n\t\t\t\t\t\t} else {\n\t\t\t\t\t\t\t// Refused once, refused always: do not ask again.\n\t\t\t\t\t\t\ttaughtWords.add(key)\n\t\t\t\t\t\t\tLog.e(TAG, \'volume $volume refused ${entry.key}\')\n\t\t\t\t\t\t}\n\t\t\t\t\t} catch (failed: Exception) {\n\t\t\t\t\t\tLog.e(TAG, \'volume $volume would not take ${entry.key}\', failed)\n\t\t\t\t\t\ttaughtWords.add(key)\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}'''
-          # Use double-quoted form matching the file
-          old = old.replace("\\'", '"')
-
-          new = '''\tprivate fun teachUnknownWords(target: EvvEngine, text: String) {\n\t\tif (wordMaps.isEmpty() || text.isEmpty()) return\n\t\tval entries = wordMaps[target.language] ?: return\n\t\tval byLower = HashMap<String, MutableList<DictEntry>>()\n\t\tfor ((exact, list) in entries) {\n\t\t\tbyLower.getOrPut(exact.lowercase()) { mutableListOf() }.addAll(list)\n\t\t}\n\t\tfor (raw in WORD.findAll(text)) {\n\t\t\tval word = raw.value\n\t\t\tval hits = entries[word]\n\t\t\t\t?: entries[word + \'.\']\n\t\t\t\t?: byLower[word.lowercase()]\n\t\t\t\t?: byLower[word.lowercase() + \'.\']\n\t\t\t\t?: continue\n\t\t\tfor (entry in hits) {\n\t\t\t\tfor (volume in teachVolumes(entry.volume)) {\n\t\t\t\t\t// Teach the spoken form so the case-sensitive engine matches\n\t\t\t\t\t// this utterance; the dictionary key stays as written for later.\n\t\t\t\t\tval form = word\n\t\t\t\t\tval k = volume to form\n\t\t\t\t\tif (k in taughtWords) continue\n\t\t\t\t\ttry {\n\t\t\t\t\t\tif (target.teachWord(volume, form, entry.say) == 0) {\n\t\t\t\t\t\t\ttaughtWords.add(k)\n\t\t\t\t\t\t} else {\n\t\t\t\t\t\t\ttaughtWords.add(k)\n\t\t\t\t\t\t\tLog.e(TAG, \'volume $volume refused $form\')\n\t\t\t\t\t\t}\n\t\t\t\t\t} catch (failed: Exception) {\n\t\t\t\t\t\tLog.e(TAG, \'volume $volume would not take $form\', failed)\n\t\t\t\t\t\ttaughtWords.add(k)\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}'''
-          new = new.replace("\\'", '"')
-
-          if old not in t:
-              raise SystemExit('teachUnknownWords block not found')
-          t = t.replace(old, new, 1)
-
-          # Yield every 100 teaches so synthesis can take the engine lock
-          # (loading root + abbr previously monopolized the lock and hung).
-          old_loop = '''\t\t\tfor (entry in mine) {\n\t\t\t\tif (engine !== target) return@Thread\n\t\t\t\tif (calls >= MAX_EAGER_TEACH) return@Thread\n\t\t\t\tfor (volume in teachVolumes(entry.volume)) {\n\t\t\t\t\tval key = volume to entry.key\n\t\t\t\t\tif (key in taughtWords) continue\n\t\t\t\t\ttry {\n\t\t\t\t\t\tval rc = target.teachWord(volume, entry.key, entry.say)\n\t\t\t\t\t\ttaughtWords.add(key)\n\t\t\t\t\t\tif (rc != 0) Log.e(TAG, \'volume $volume refused ${entry.key}\')\n\t\t\t\t\t} catch (failed: Exception) {\n\t\t\t\t\t\tLog.e(TAG, \'volume $volume would not take ${entry.key}\', failed)\n\t\t\t\t\t\ttaughtWords.add(key)\n\t\t\t\t\t}\n\t\t\t\t\tcalls++\n\t\t\t\t}\n\t\t\t}'''
-          old_loop = old_loop.replace("\\'", '"')
-          new_loop = '''\t\t\tfor (entry in mine) {\n\t\t\t\tif (engine !== target) return@Thread\n\t\t\t\tif (calls >= MAX_EAGER_TEACH) return@Thread\n\t\t\t\tfor (volume in teachVolumes(entry.volume)) {\n\t\t\t\t\tval key = volume to entry.key\n\t\t\t\t\tif (key in taughtWords) continue\n\t\t\t\t\ttry {\n\t\t\t\t\t\tval rc = target.teachWord(volume, entry.key, entry.say)\n\t\t\t\t\t\ttaughtWords.add(key)\n\t\t\t\t\t\tif (rc != 0) Log.e(TAG, \'volume $volume refused ${entry.key}\')\n\t\t\t\t\t} catch (failed: Exception) {\n\t\t\t\t\t\tLog.e(TAG, \'volume $volume would not take ${entry.key}\', failed)\n\t\t\t\t\t\ttaughtWords.add(key)\n\t\t\t\t\t}\n\t\t\t\t\tcalls++\n\t\t\t\t\tif (calls % 100 == 0) {\n\t\t\t\t\t\ttry { Thread.sleep(1) } catch (_: InterruptedException) { return@Thread }\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}'''
-          new_loop = new_loop.replace("\\'", '"')
-          if old_loop not in t:
-              raise SystemExit('teachAllWords loop not found')
-          t = t.replace(old_loop, new_loop, 1)
-
-          p.write_text(t)
-          assert '100_000' in t and 'byLower' in t and 'calls % 100' in t
-          print('dict fixes ok: limit=100k, case-insensitive lazy, yield every 100')
-          PY
+          patch -p1 < ci/dict-fix.patch
+          grep -q 'MAX_EAGER_TEACH = 100_000' app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
+          grep -q 'byLower' app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
+          echo "dict fix applied"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
