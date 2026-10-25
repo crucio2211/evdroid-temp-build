@@ -5157,8 +5157,10 @@ dictionary eng_abbr statement 1 width 0 records characters
   blvd 255 255 32 says boulevard
   bn 255 255 34 says billion
   bps 255 255 38 says bits
+  ca 255 255 44 says circa
   cir 255 255 51 says circle
   corp 255 255 58 says corporation
+  cu 255 255 64 says cubic
   cd 255 255 49 says candela
   cm 255 255 52 says centimeter
   cmdr 255 255 53 says commander
@@ -5199,6 +5201,7 @@ dictionary eng_abbr statement 1 width 0 records characters
   m 255 255 156 says meter
   misc 255 255 173 says miscellaneous
   mol 255 255 182 says mole
+  mA 255 255 157 says milliampere
   mg 255 255 166 says milligram
   mgr 255 255 167 says manager
   mgt 255 255 168 says management
@@ -5214,6 +5217,7 @@ dictionary eng_abbr statement 1 width 0 records characters
   natl 255 255 194 says national
   nat'l 255 255 194 says national
   neg 255 255 202 says negative
+  no 255 255 211 says number
   nsec 255 255 213 says nanosecond
   p 255 255 228 says page
   pd 255 255 230 says paid
@@ -5259,13 +5263,16 @@ dictionary eng_abbr statement 1 width 0 records characters
   Calif 255 255 47 says california
   Capt 255 255 48 says captain
   Cir 255 255 51 says circle
+  Co 255 255 54 says company
   Col 255 255 55 says colonel
   Colo 255 255 56 says colorado
   Conn 255 255 60 says connecticut
   Corp 255 255 58 says corporation
+  CA 255 255 47 says california
   CAD 255 255 45 says canadian[ ]dollar
   CAL 255 255 46 says california
   CALIF 255 255 47 says california
+  CO 255 255 57 says colorado
   CORP 255 255 58 says corporation
   Cmdr 255 255 53 says commander
   Cpl 255 255 59 says corporal
@@ -5279,6 +5286,7 @@ dictionary eng_abbr statement 1 width 0 records characters
   Del 255 255 68 says delaware
   Dept 255 255 71 says department
   Div 255 255 73 says division
+  DE 255 255 68 says delaware
   DEM 255 255 72 says german[ ]mark
   Dr 255 255 81 says doctor or drive
   Drs 255 255 82 says doctors
@@ -5297,9 +5305,12 @@ dictionary eng_abbr statement 1 width 0 records characters
   FL 255 255 95 says florida
   FLA 255 255 95 says florida
   FRF 255 255 96 says french[ ]franc
+  Ga 255 255 101 says georgia
   Gen 255 255 103 says general
   Gov 255 255 105 says governor
+  GA 255 255 101 says georgia
   GBP 255 255 102 says british[ ]pound
+  HI 255 255 108 says hawaii
   Hts 255 255 112 says heights
   Hz 255 255 114 says hertz
   Jan 255 255 126 says january
@@ -5319,6 +5330,7 @@ dictionary eng_abbr statement 1 width 0 records characters
   KY 255 255 145 says kentucky
   KYD 255 255 146 says cayman[ ]islands[ ]dollar
   L 255 255 147
+  LA 255 255 148 says louisiana
   LUF 255 255 154 says luxemburg[ ]franc
   Ln 255 255 151 says lane
   Lt 255 255 152 says lieutenant
@@ -5328,7 +5340,12 @@ dictionary eng_abbr statement 1 width 0 records characters
   Mass 255 255 158 says massachusetts
   Mich 255 255 171 says michigan
   Minn 255 255 172 says minnesota
+  Mo 255 255 181 says missouri
   Mon 255 255 183 says monday
+  MA 255 255 158 says massachusetts
+  ME 255 255 165 says maine
+  MI 255 255 170 says michigan
+  MO 255 255 181 says missouri
   Mbps 255 255 161 says megabits
   Md 255 255 163 says maryland
   Mr 255 255 184 says mister
@@ -5350,7 +5367,11 @@ dictionary eng_abbr statement 1 width 0 records characters
   Nat'l 255 255 194 says national
   Nebr 255 255 201 says nebraska
   Nev 255 255 203 says nevada
+  No 255 255 211 says number
   Nov 255 255 212 says november
+  NA 255 255 193 says en[ ]ay
+  NE 255 255 199 says nebraska or northeast
+  NO 255 255 211 says number
   NC 255 255 195 says north[ ]
   ND 255 255 197 says north[ ]
   NH 255 255 204 says new[ ]
@@ -5369,6 +5390,8 @@ dictionary eng_abbr statement 1 width 0 records characters
   N.M 255 255 210 says new[ ]
   N.W 255 255 216 says northwest
   N.Y 255 255 218 says new[ ]
+  Pa 255 255 229 says pennsylvania
+  PA 255 255 229 says pennsylvania
   Ph.d 255 255 232 says pee[ ]aitch[ ]dee
   Ph.D 255 255 232 says pee[ ]aitch[ ]dee
   Pl 255 255 234 says place
@@ -5378,6 +5401,7 @@ dictionary eng_abbr statement 1 width 0 records characters
   Rep 255 255 242 says representative
   Reps 255 255 243 says representatives
   Rev 255 255 244 says reverend
+  RI 255 255 245 says rhode[ ]island
   RUB 255 255 248 says russian[ ]rouble
   Rd 255 255 240 says road
   R.I 255 255 246 says rhode[ ]island
@@ -5387,6 +5411,7 @@ dictionary eng_abbr statement 1 width 0 records characters
   Sep 255 255 259 says september
   Sept 255 255 259 says september
   Sun 255 255 266 says sunday
+  SE 255 255 256 says southeast
   SEK 255 255 257 says swedish[ ]krona
   SIT 255 255 260 says slovenian[ ]tolar
   Sgt 255 255 261 says sergeant
@@ -5409,12 +5434,16 @@ dictionary eng_abbr statement 1 width 0 records characters
   TN 255 255 269 says tennessee
   TX 255 255 274 says texas
   V 255 255 276 says volt
+  Va 255 255 279 says virginia
+  VA 255 255 280 says virginia or vee[ ]aye
   VT 255 255 282 says vermont
   W 255 255 283 says watt
   Wash 255 255 285 says washington
   Wed 255 255 286 says wednesday
   Wis 255 255 287 says wisconsin
   Wisc 255 255 287 says wisconsin
+  WA 255 255 284 says washington
+  WI 255 255 287 says wisconsin
   Wyo 255 255 293 says wyoming
   WV 255 255 291 says west[ ]virginia
   WY 255 255 293 says wyoming

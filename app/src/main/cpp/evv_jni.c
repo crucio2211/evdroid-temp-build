@@ -415,7 +415,10 @@ JNIEXPORT jint JNICALL Java_org_evvdroid_EvvNative_loadDictionary(JNIEnv* env, j
 	const char* name;
 	jint        answer;
 	(void)cls;
-	if (in == NULL || path == NULL || !ensure_dict(in))
+	if (in == NULL || path == NULL)
+		return -1;
+	wait_until_idle(in);
+	if (!ensure_dict(in))
 		return -1;
 	name = (*env)->GetStringUTFChars(env, path, NULL);
 	if (name == NULL)
@@ -434,7 +437,10 @@ JNIEXPORT jint JNICALL Java_org_evvdroid_EvvNative_teachWord(JNIEnv* env, jclass
 	unsigned char* pair;
 	jint           answer;
 	(void)cls;
-	if (in == NULL || key == NULL || say == NULL || !ensure_dict(in))
+	if (in == NULL || key == NULL || say == NULL)
+		return -1;
+	wait_until_idle(in);
+	if (!ensure_dict(in))
 		return -1;
 	keyLen = (*env)->GetArrayLength(env, key);
 	sayLen = (*env)->GetArrayLength(env, say);
@@ -461,6 +467,7 @@ JNIEXPORT jstring JNICALL Java_org_evvdroid_EvvNative_lookUpWord(JNIEnv* env, jc
 	(void)cls;
 	if (in == NULL || key == NULL || in->dict == NULL_DICT_HAND)
 		return NULL;
+	wait_until_idle(in);
 	keyLen = (*env)->GetArrayLength(env, key);
 	want = (unsigned char*)malloc((size_t)keyLen + 1);
 	if (want == NULL)
@@ -481,6 +488,7 @@ JNIEXPORT void JNICALL Java_org_evvdroid_EvvNative_forgetDictionaries(JNIEnv* en
 	(void)cls;
 	if (in == NULL || in->dict == NULL_DICT_HAND)
 		return;
+	wait_until_idle(in);
 	eciSetDict(in->eci, NULL_DICT_HAND);
 	eciDeleteDict(in->eci, in->dict);
 	in->dict = NULL_DICT_HAND;

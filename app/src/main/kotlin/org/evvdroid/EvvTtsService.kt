@@ -33,8 +33,12 @@ class EvvTtsService : TextToSpeechService() {
 	private var loadedDictionaries: Map<Int, String> = emptyMap()
 	private var loadedDictionaryLangs: Map<Int, Int> = emptyMap()
 	private var loadedEngine: EvvEngine? = null
+	/** Serializes background teaching with replacing the engine's dictionary set. */
+	private val dictionaryMutationLock = Any()
+	@Volatile
+	private var dictionaryGeneration = 0
 
-	/** Picked files as read: engine language to lowercase word, to every
+	/** Picked files as read: engine language to exact dictionary key, to every
 	 *  entry written under it, with the volume each was picked for and
 	 *  the key as written and what to say. Files for one language read
 	 *  as one map, so a word is taught to the engine that will speak
@@ -43,7 +47,6 @@ class EvvTtsService : TextToSpeechService() {
 	 *  teacher below. */
 	private data class DictEntry(val volume: Int, val key: String, val say: String)
 	private var wordMaps: Map<Int, Map<String, List<DictEntry>>> = emptyMap()
-	private var wordMapsLower: Map<Int, Map<String, List<DictEntry>>> = emptyMap()
 	private val taughtWords = java.util.concurrent.ConcurrentHashMap.newKeySet<Pair<Int, String>>()
 
 	/** Words as the engine meets them: letters and digits carrying their
@@ -236,7 +239,12 @@ class EvvTtsService : TextToSpeechService() {
 		}
 		val langs = want.keys.associateWith { s.dictionaryLanguageResolved(it, EvvEngine.available) }
 		if (want == loadedDictionaries && langs == loadedDictionaryLangs && target === loadedEngine) return
-		target.forgetDictionaries()
+		// Stop a previous eager-teaching pass before detaching its native set.
+		val generation = synchronized(dictionaryMutationLock) {
+			dictionaryGeneration++
+			target.forgetDictionaries()
+			dictionaryGeneration
+		}
 		if (want != loadedDictionaries || langs != loadedDictionaryLangs) {
 			val read = LinkedHashMap<Int, LinkedHashMap<String, MutableList<DictEntry>>>()
 			for ((volume, path) in want) {
@@ -260,22 +268,13 @@ class EvvTtsService : TextToSpeechService() {
 				}
 			}
 			wordMaps = read
-			val lower = LinkedHashMap<Int, Map<String, List<DictEntry>>>()
-			for ((lang, entries) in read) {
-				val by = HashMap<String, MutableList<DictEntry>>()
-				for ((exact, list) in entries) {
-					by.getOrPut(exact.lowercase()) { mutableListOf() }.addAll(list)
-				}
-				lower[lang] = by
-			}
-			wordMapsLower = lower
 		}
 		taughtWords.clear()
 		loadedDictionaries = want
 		loadedDictionaryLangs = langs
 		loadedEngine = target
 		loadBinaryDictionaries(target, want, langs)
-		teachAllWords(target)
+		teachAllWords(target, generation)
 	}
 
 	/** The files in the engine's own saved form, read by the engine's loader
@@ -312,13 +311,13 @@ class EvvTtsService : TextToSpeechService() {
 	 *  thread, each to the volumes it belongs in. Stops early if the
 	 *  engine moved on underneath it or the eager bound is reached; the
 	 *  lazy path teaches whatever is still missing when it is spoken. */
-	private fun teachAllWords(target: EvvEngine) {
+	private fun teachAllWords(target: EvvEngine, generation: Int) {
 		val entries = wordMaps[target.language] ?: return
 		val mine = entries.values.flatten()
 		Thread({
 			var calls = 0
 			for (entry in mine) {
-				if (engine !== target) return@Thread
+				if (engine !== target || generation != dictionaryGeneration) return@Thread
 				if (calls >= MAX_EAGER_TEACH) return@Thread
 				val say = if (entry.say.startsWith("[") && entry.say.endsWith("]") && !entry.say.startsWith("`[")) {
 					"`${entry.say}"
@@ -334,14 +333,22 @@ class EvvTtsService : TextToSpeechService() {
 					for (form in forms) {
 						val key = volume to form
 						if (key in taughtWords) continue
-						try {
-							val rc = target.teachWord(volume, form, say)
-							taughtWords.add(key)
-							if (rc != 0) Log.e(TAG, "volume $volume refused $form")
-						} catch (failed: Exception) {
-							Log.e(TAG, "volume $volume would not take $form", failed)
-							taughtWords.add(key)
+						val current = synchronized(dictionaryMutationLock) {
+							if (engine !== target || generation != dictionaryGeneration) {
+								false
+							} else {
+								try {
+									val rc = target.teachWord(volume, form, say)
+									taughtWords.add(key)
+									if (rc != 0) Log.e(TAG, "volume $volume refused $form")
+								} catch (failed: Exception) {
+									Log.e(TAG, "volume $volume would not take $form", failed)
+									taughtWords.add(key)
+								}
+								true
+							}
 						}
+						if (!current) return@Thread
 						calls++
 						if (calls % 50 == 0) Thread.yield()
 					}
@@ -358,47 +365,76 @@ class EvvTtsService : TextToSpeechService() {
 
 	/** Keeps apostrophes on a matched dictionary word intact until the
 	 *  dictionaries have taught or rewritten it. */
-	private fun protectDictionaryApostrophes(language: Int, text: String): String =
+	private fun protectDictionaryApostrophes(target: EvvEngine, text: String): String =
 		WORD.replace(text) { match ->
 			val word = match.value
-			if (word.any { it == '\'' || it == '\u2019' } && lookupEntries(language, word).isNotEmpty()) {
+			if (word.any { it == '\'' || it == '\u2019' } && hasDictionaryEntry(target, word)) {
 				word.replace('\'', DICT_APOSTROPHE).replace('\u2019', DICT_CURLY_APOSTROPHE)
 			} else {
 				word
 			}
 		}
+	private fun hasDictionaryEntry(target: EvvEngine, word: String): Boolean {
+		if (lookupEntries(target.language, word).isNotEmpty()) return true
+		for ((volume, path) in loadedDictionaries) {
+			if ((loadedDictionaryLangs[volume] ?: target.language) != target.language) continue
+			val file = java.io.File(path)
+			if (file.exists() && Dictionaries.isBinary(file) && binaryDictionarySay(target, volume, word) != null) return true
+		}
+		return false
+	}
+	private fun binaryDictionarySay(target: EvvEngine, volume: Int, word: String): String? {
+		val forms = if (isSentenceCapitalized(word)) linkedSetOf(word, word.lowercase()) else linkedSetOf(word)
+		for (form in forms) {
+			target.lookUpWord(volume, form)?.let { return it }
+		}
+		return null
+	}
 	private fun restoreDictionaryApostrophes(text: String): String =
 		text.replace(DICT_APOSTROPHE, '\'').replace(DICT_CURLY_APOSTROPHE, '\u2019')
 
-	/** Prefer exact-case dict hits; fall back to case-insensitive. Prefer
-	 *  MAIN over ROOT when several volumes match the same word. */
+	/** Match dictionary keys with Eloquence's case-sensitive rule. A sentence
+	 *  initial capital may use a lowercase key, as the eager teacher installs
+	 *  that form; an uppercase key such as `NA` must not rewrite lowercase `na`.
+	 *  Prefer MAIN over ROOT when several volumes match. */
 	private fun lookupEntries(language: Int, word: String): List<DictEntry> {
 		val entries = wordMaps[language] ?: return emptyList()
 		val exact = entries[word] ?: entries[word + "."]
 		if (exact != null) return exact
-		val byLower = wordMapsLower[language] ?: return emptyList()
-		return byLower[word.lowercase()]
-			?: byLower[word.lowercase() + "."]
-			?: emptyList()
+		if (!isSentenceCapitalized(word)) return emptyList()
+		val lower = word.lowercase()
+		return entries[lower] ?: entries[lower + "."] ?: emptyList()
 	}
+	private fun isSentenceCapitalized(word: String): Boolean =
+		word.isNotEmpty() && word[0].isUpperCase() && word.drop(1).none { it.isUpperCase() }
 
-	/** Plain respelling only: rewrite the spoken text for first-pass accuracy.
-	 *  Phoneme entries are never inlined — teachWord handles those. */
-	private fun applyRespellings(language: Int, text: String): String {
-		if (text.isEmpty() || wordMaps.isEmpty()) return text
+	/** Plain respellings are written in place. Phoneme readings for words with
+	 *  apostrophes are inlined because the engine's word scan can split there;
+	 *  other phoneme entries continue through teachWord. */
+	private fun applyRespellings(target: EvvEngine, text: String): String {
+		if (text.isEmpty()) return text
 		return WORD.replace(text) { match ->
 			val word = match.value
-			val hits = lookupEntries(language, word)
-			if (hits.isEmpty()) return@replace word
-			val entry = hits.minByOrNull { it.volume } ?: return@replace word
-			if (isPhonemeSay(entry.say)) {
-				word
-			} else {
-				if (word.isNotEmpty() && word[0].isUpperCase() && entry.say.isNotEmpty() && entry.say[0].isLowerCase()) {
-					entry.say.replaceFirstChar { it.uppercase() }
+			val entry = lookupEntries(target.language, word).minByOrNull { it.volume }
+			val say = entry?.say ?: if (word.any { it == '\'' || it == '\u2019' }) {
+				loadedDictionaries.entries
+					.filter { (volume, _) -> (loadedDictionaryLangs[volume] ?: target.language) == target.language }
+					.sortedBy { it.key }
+					.firstNotNullOfOrNull { (volume, path) ->
+						val file = java.io.File(path)
+						if (file.exists() && Dictionaries.isBinary(file)) binaryDictionarySay(target, volume, word) else null
+					}
+			} else null
+			if (say != null && isPhonemeSay(say) && word.any { it == '\'' || it == '\u2019' }) {
+				if (say.startsWith("[") && say.endsWith("]") && !say.startsWith("`[")) "`$say" else say
+			} else if (say != null && entry != null && !isPhonemeSay(say)) {
+				if (word.isNotEmpty() && word[0].isUpperCase() && say.isNotEmpty() && say[0].isLowerCase()) {
+					say.replaceFirstChar { it.uppercase() }
 				} else {
-					entry.say
+					say
 				}
+			} else {
+				word
 			}
 		}
 	}
@@ -420,7 +456,11 @@ class EvvTtsService : TextToSpeechService() {
 					entry.say
 				}
 				for (volume in teachVolumes(entry.volume)) {
-					val forms = linkedSetOf(entry.key, word, word.lowercase(), word.replaceFirstChar { it.uppercase() })
+					val forms = if (entry.key.firstOrNull()?.isLowerCase() == true) {
+						linkedSetOf(entry.key, entry.key.replaceFirstChar { it.uppercase() })
+					} else {
+						linkedSetOf(entry.key)
+					}
 					for (form in forms) {
 						val k = volume to form
 						if (k in taughtWords) continue
@@ -508,7 +548,7 @@ class EvvTtsService : TextToSpeechService() {
 		val audio = s?.audioSnapshot() ?: AudioOutput.Snapshot()
 		for ((ri, rawPiece) in rawPieces.withIndex()) {
 			if (stopped) break
-			val protectedPiece = protectDictionaryApostrophes(target.language, rawPiece)
+			val protectedPiece = protectDictionaryApostrophes(target, rawPiece)
 			val fixed = TextPipeline.process(
 				protectedPiece,
 				emoji = s?.speakEmoji != false,
@@ -525,7 +565,7 @@ class EvvTtsService : TextToSpeechService() {
 			// Words the dictionaries know are taught now, ahead of the engine
 			// meeting them below.
 			teachUnknownWords(target, afterRegex)
-			val text = applyRespellings(target.language, afterRegex)
+			val text = applyRespellings(target, afterRegex)
 			if (text.isEmpty()) continue
 			val pieces = TextPieces.split(text)
 			for ((at, part) in pieces.withIndex()) {
