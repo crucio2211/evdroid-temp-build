@@ -245,7 +245,7 @@ class EvvTtsService : TextToSpeechService() {
 			target.forgetDictionaries()
 			dictionaryGeneration
 		}
-		if (want != loadedDictionaries || langs != loadedDictionaryLangs) {
+		if (want != loadedDictionaries || langs != loadedDictionaryLangs || target !== loadedEngine) {
 			val read = LinkedHashMap<Int, LinkedHashMap<String, MutableList<DictEntry>>>()
 			for ((volume, path) in want) {
 				try {
@@ -256,7 +256,16 @@ class EvvTtsService : TextToSpeechService() {
 					if (Dictionaries.isBinary(file)) continue
 					val entries = Dictionaries.parse(file)
 					Log.i(TAG, "volume $volume: ${entries.size} entries from ${file.name}")
-					val into = read.getOrPut(langs[volume] ?: target.language) { LinkedHashMap() }
+					val selectedLanguage = langs[volume] ?: target.language
+					// Text root dictionaries for either English voice can be used
+					// by both. Their ETI phoneme spellings are shared across US
+					// and UK English; other language families keep their own map.
+					val shareEnglishRoot = volume == Eci.DICT_ROOT &&
+						Eci.localeOf(selectedLanguage)?.first == "eng" &&
+						Eci.localeOf(target.language)?.first == "eng"
+					val into = read.getOrPut(
+						if (shareEnglishRoot) target.language else selectedLanguage
+					) { LinkedHashMap() }
 					for ((exact, entry) in entries) {
 						into.getOrPut(exact) { mutableListOf() }
 							.add(DictEntry(volume, entry.first, entry.second))
