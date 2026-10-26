@@ -19,8 +19,15 @@ import java.util.Locale
  */
 class EvvTtsService : TextToSpeechService() {
 
+	@Volatile
 	private var engine: EvvEngine? = null
 	private var settings: Settings? = null
+	private val engineExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { task ->
+		Thread(task, "evvdroid-engine-load").apply { isDaemon = true }
+	}
+	private val engineLoadLock = Any()
+	private var pendingEngineLanguage: Int? = null
+	private var pendingEngine: java.util.concurrent.Future<EvvEngine?>? = null
 
 	/** Written on one binder thread and read on another: a stop the pump
 	 *  never sees is audio committed past it, and that is the stale sliver
@@ -32,6 +39,7 @@ class EvvTtsService : TextToSpeechService() {
 
 	private var loadedDictionaries: Map<Int, String> = emptyMap()
 	private var loadedDictionaryLangs: Map<Int, Int> = emptyMap()
+	private var loadedDictionaryStamps: Map<Int, Pair<Long, Long>> = emptyMap()
 	private var loadedEngine: EvvEngine? = null
 	/** Picked files as read: engine language to exact dictionary key, to every
 	 *  entry written under it, with the volume each was picked for and
@@ -61,21 +69,34 @@ class EvvTtsService : TextToSpeechService() {
 		Thread({ EmojiNames.STARTERS.size }, "emoji-warmup").start()
 	}
 
-	/** Parse saved text dictionaries before the first utterance. Imported files
-	 *  are already warmed by the settings screen; this covers a process restart
-	 *  without making TalkBack wait for a full dictionary scan. */
+	/** Prepare native dictionary cache files after service startup, without
+	 *  making the first TalkBack request parse every saved dictionary. */
 	private fun warmDictionaryCaches() {
-		val paths = settings?.dictionaryPaths()?.values?.distinct().orEmpty()
+		val saved = settings ?: return
+		val paths = saved.dictionaryPaths()
 		Thread({
-			for (path in paths) {
-				val file = java.io.File(path)
-				if (file.exists() && !Dictionaries.isBinary(file)) Dictionaries.parse(file)
+			for ((volume, path) in paths) {
+				try {
+					val file = java.io.File(path)
+					if (file.exists() && !Dictionaries.isBinary(file)) {
+						val language = saved.dictionaryLanguageResolved(volume, EvvEngine.available)
+						Dictionaries.prepareForEngine(file, language)
+					}
+				} catch (failed: Exception) {
+					Log.e(TAG, "could not warm dictionary volume $volume", failed)
+				}
 			}
 		}, "evvdroid-dictionary-cache").apply { isDaemon = true }.start()
 	}
 
 	override fun onDestroy() {
 		super.onDestroy()
+		engineExecutor.shutdown()
+		try {
+			engineExecutor.awaitTermination(2, java.util.concurrent.TimeUnit.SECONDS)
+		} catch (interrupted: InterruptedException) {
+			Thread.currentThread().interrupt()
+		}
 		engine?.close()
 		engine = null
 	}
@@ -111,7 +132,7 @@ class EvvTtsService : TextToSpeechService() {
 
 	override fun onLoadLanguage(lang: String?, country: String?, variant: String?): Int {
 		val found = matchLanguage(lang, country) ?: return TextToSpeech.LANG_NOT_SUPPORTED
-		ensureEngine(found.first) ?: return TextToSpeech.LANG_NOT_SUPPORTED
+		requestEngine(found.first)
 		return found.second
 	}
 
@@ -164,7 +185,7 @@ class EvvTtsService : TextToSpeechService() {
 
 	override fun onLoadVoice(name: String?): Int {
 		val found = findVoice(name) ?: return TextToSpeech.ERROR
-		ensureEngine(found.first) ?: return TextToSpeech.ERROR
+		requestEngine(found.first)
 		return TextToSpeech.SUCCESS
 	}
 
@@ -187,14 +208,43 @@ class EvvTtsService : TextToSpeechService() {
 		return fallback
 	}
 
+	/** Language selection starts engine and dictionary setup on a worker. The
+	 *  synthesis callback joins that same task only if speech arrives first. */
+	private fun requestEngine(language: Int): java.util.concurrent.Future<EvvEngine?> = synchronized(engineLoadLock) {
+		engine?.takeIf { it.language == language }?.let { ready ->
+			val completed = java.util.concurrent.FutureTask<EvvEngine?>(java.util.concurrent.Callable { ready })
+			completed.run()
+			return@synchronized completed
+		}
+		pendingEngine?.takeIf { pendingEngineLanguage == language && !it.isDone }?.let {
+			return@synchronized it
+		}
+		pendingEngineLanguage = language
+		engineExecutor.submit<EvvEngine?> { openEngine(language) }.also { pendingEngine = it }
+	}
+
 	private fun ensureEngine(language: Int): EvvEngine? {
+		return try {
+			requestEngine(language).get()
+		} catch (interrupted: InterruptedException) {
+			Thread.currentThread().interrupt()
+			null
+		} catch (failed: java.util.concurrent.ExecutionException) {
+			Log.e(TAG, "engine setup failed for 0x%08x".format(language), failed.cause ?: failed)
+			null
+		}
+	}
+
+	/** Called only by [engineExecutor], so changing language cannot race another
+	 *  engine construction. Dictionary files are attached before the task ends. */
+	private fun openEngine(language: Int): EvvEngine? {
 		val held = engine
 		if (held != null && held.language == language) return held
 		held?.close()
+		engine = null
 		val made = EvvEngine.open(language)
 		engine = made
-		// Taught words live on the instance, so a new one starts untaught
-		// and learns again as words come up.
+		// A new engine owns a fresh native dictionary set.
 		taughtWords.clear()
 		if (made != null) applySettings(made)
 		return made
@@ -228,9 +278,8 @@ class EvvTtsService : TextToSpeechService() {
 		}
 	}
 
-	/** Reads picked files when they change. Text entries are taught on demand
-	 *  immediately before the utterance that needs them; background mutations
-	 *  wait for the engine to become idle and can block active synthesis. */
+	/** Parses imported files for apostrophe handling, then loads each normalized
+	 *  text dictionary through the engine's native file loader in one call. */
 	private fun loadDictionaries(target: EvvEngine, s: Settings) {
 		// The engine flag below controls its built-in abbreviation list. Keep
 		// the user's abbreviation volume behind the same switch: otherwise a
@@ -240,9 +289,13 @@ class EvvTtsService : TextToSpeechService() {
 			s.useDictionary(it) && (it != Eci.DICT_ABBREVIATION || s.abbreviations)
 		}
 		val langs = want.keys.associateWith { s.dictionaryLanguageResolved(it, EvvEngine.available) }
-		if (want == loadedDictionaries && langs == loadedDictionaryLangs && target === loadedEngine) return
+		val stamps = want.mapValues { (_, path) ->
+			val file = java.io.File(path)
+			file.length() to file.lastModified()
+		}
+		if (want == loadedDictionaries && langs == loadedDictionaryLangs && stamps == loadedDictionaryStamps && target === loadedEngine) return
 		target.forgetDictionaries()
-		if (want != loadedDictionaries || langs != loadedDictionaryLangs || target !== loadedEngine) {
+		if (want != loadedDictionaries || langs != loadedDictionaryLangs || stamps != loadedDictionaryStamps || target !== loadedEngine) {
 			val read = LinkedHashMap<Int, LinkedHashMap<String, MutableList<DictEntry>>>()
 			for ((volume, path) in want) {
 				try {
@@ -251,8 +304,8 @@ class EvvTtsService : TextToSpeechService() {
 					// A file in the engine's own form is not parsed here: the
 					// engine reads it, below.
 					if (Dictionaries.isBinary(file)) continue
-					val entries = Dictionaries.parse(file)
-					Log.i(TAG, "volume $volume: ${entries.size} entries from ${file.name}")
+					val entries = Dictionaries.apostropheEntries(file)
+					Log.i(TAG, "volume $volume: ${entries.size} apostrophe entries from ${file.name}")
 					// Keep each dictionary with the language chosen at import:
 					// enuroot belongs to US English; engroot belongs to UK English.
 					val into = read.getOrPut(langs[volume] ?: target.language) { LinkedHashMap() }
@@ -271,21 +324,33 @@ class EvvTtsService : TextToSpeechService() {
 		taughtWords.clear()
 		loadedDictionaries = want
 		loadedDictionaryLangs = langs
+		loadedDictionaryStamps = stamps
 		loadedEngine = target
-		loadBinaryDictionaries(target, want, langs)
+		loadEngineDictionaries(target, want, langs)
 	}
 
-	/** The files in the engine's own saved form, read by the engine's loader
-	 *  into the language they were picked for. A text file for the same volume
-	 *  is taught word by word after this, and so wins where they overlap. */
-	private fun loadBinaryDictionaries(target: EvvEngine, want: Map<Int, String>, langs: Map<Int, Int>) {
+	/** Binary dictionaries use the engine's saved form. Text dictionaries are
+	 *  normalized and encoded during import/cache warmup, then indexed natively
+	 *  in one call. A root file also goes to main so it can override a built-in
+	 *  main entry, matching the existing root precedence. */
+	private fun loadEngineDictionaries(target: EvvEngine, want: Map<Int, String>, langs: Map<Int, Int>) {
 		for ((volume, path) in want) {
 			if ((langs[volume] ?: target.language) != target.language) continue
 			try {
 				val file = java.io.File(path)
-				if (!file.exists() || !Dictionaries.isBinary(file)) continue
-				val ok = Dictionaries.loadBinary(target, volume, file)
-				Log.i(TAG, "volume $volume: ${file.name} ${if (ok) "loaded by the engine" else "refused by the engine"}")
+				if (!file.exists()) continue
+				if (Dictionaries.isBinary(file)) {
+					val ok = Dictionaries.loadBinary(target, volume, file)
+					Log.i(TAG, "volume $volume: ${file.name} ${if (ok) "loaded by the engine" else "refused by the engine"}")
+					continue
+				}
+				val ready = Dictionaries.prepareForEngine(file, target.language)
+				val destinations = if (volume == Eci.DICT_ROOT) listOf(Eci.DICT_MAIN, Eci.DICT_ROOT) else listOf(volume)
+				for (destination in destinations) {
+					val result = target.loadDictionary(destination, ready.absolutePath)
+					if (result != 0) Log.e(TAG, "volume $destination refused ${file.name}: $result")
+				}
+				Log.i(TAG, "volume $volume: text dictionary indexed natively from ${file.name}")
 			} catch (failed: Exception) {
 				Log.e(TAG, "volume $volume not loaded by the engine", failed)
 			}
@@ -318,7 +383,7 @@ class EvvTtsService : TextToSpeechService() {
 		}
 	private fun hasDictionaryEntry(target: EvvEngine, word: String): Boolean {
 		if (lookupEntries(target.language, word).isNotEmpty()) return true
-		if (lookupRootEntries(target.language, word).isNotEmpty()) return true
+		if (lookupRootEntries(target, target.language, word).isNotEmpty()) return true
 		for ((volume, path) in loadedDictionaries) {
 			if ((loadedDictionaryLangs[volume] ?: target.language) != target.language) continue
 			val file = java.io.File(path)
@@ -352,10 +417,13 @@ class EvvTtsService : TextToSpeechService() {
 		if (!suffix.equals("s", ignoreCase = true)) return emptyList()
 		return listOf(word.substring(0, at))
 	}
-	private fun lookupRootEntries(language: Int, word: String): List<DictEntry> =
-		rootApostropheStems(word).flatMap { stem ->
-			lookupEntries(language, stem).filter { it.volume == Eci.DICT_ROOT }
+	private fun lookupRootEntries(target: EvvEngine, language: Int, word: String): List<DictEntry> {
+		if (target.language != language || Eci.DICT_ROOT !in loadedDictionaries) return emptyList()
+		if ((loadedDictionaryLangs[Eci.DICT_ROOT] ?: language) != language) return emptyList()
+		return rootApostropheStems(word).mapNotNull { stem ->
+			target.lookUpWord(Eci.DICT_ROOT, stem)?.let { say -> DictEntry(Eci.DICT_ROOT, stem, say) }
 		}.distinctBy { it.key }
+	}
 	private fun apostropheVariants(word: String): Set<String> = linkedSetOf(
 		word,
 		word.replace('\u2019', '\''),
@@ -413,16 +481,16 @@ class EvvTtsService : TextToSpeechService() {
 		}
 	}
 
-	/** Teaches the words in [text] the engine does not know yet. An
-	 *  utterance usually teaches nothing, and a new word costs one call:
-	 *  a sixty-thousand-word file slows the utterance that first needs a
-	 *  word of it, never the one that picks it. */
+	/** Keeps the root-stem fallback for possessives and contractions. Normal
+	 *  dictionary words are already indexed by the native file loader. */
 	private fun teachUnknownWords(target: EvvEngine, text: String) {
 		if (wordMaps.isEmpty() || text.isEmpty()) return
 		for (raw in WORD.findAll(text)) {
 			val word = raw.value
-			val hits = (lookupEntries(target.language, word) + lookupRootEntries(target.language, word))
-				.distinctBy { it.volume to it.key }
+			if (word.none { it == '\'' || it == '\u2019' }) continue
+			// The native loader already indexed all ordinary entries. Keep this
+			// single-word fallback only for a root stem before an apostrophe.
+			val hits = lookupRootEntries(target, target.language, word).distinctBy { it.volume to it.key }
 			if (hits.isEmpty()) continue
 			for (entry in hits) {
 				val say = if (entry.say.startsWith("[") && entry.say.endsWith("]") && !entry.say.startsWith("`[")) {

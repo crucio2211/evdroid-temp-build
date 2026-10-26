@@ -177,7 +177,8 @@ class EvvEngine private constructor(private var handle: Long, val language: Int)
 		if (closed) -1 else EvvNative.getVoiceParam(handle, Eci.VOICE_CURRENT, param)
 	}
 
-	/** Hands a file to the engine's own dictionary loader. Nought is success. */
+	/** Hands a tab-separated text file or saved dictionary to the native loader.
+	 *  Nought is success. */
 	fun loadDictionary(volume: Int, path: String): Int = synchronized(dictionaryGuard) {
 		val current = synchronized(guard) { if (closed) 0L else handle }
 		if (current == 0L) -1 else EvvNative.loadDictionary(current, volume, path)

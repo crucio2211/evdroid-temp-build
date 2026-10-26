@@ -310,8 +310,9 @@ class SettingsModel(context: Context) {
 				if (!pending.exists()) throw java.io.IOException("the pending dictionary is missing")
 				pending.copyTo(file, overwrite = true)
 				pending.delete()
+				into.listFiles()?.filter { it.name.startsWith(".evvdroid-volume-$slot-") }?.forEach { it.delete() }
 				Dictionaries.invalidate(file)
-				if (!binary) Dictionaries.parse(file)
+				if (!binary) Dictionaries.prepareForEngine(file, language)
 			}
 			mainHandler.post {
 				dictionaryImporting = false
@@ -346,6 +347,9 @@ class SettingsModel(context: Context) {
 			}
 			settings.setDictionary(volume, null, null)
 		}
+		java.io.File(app.filesDir, "dictionaries").listFiles()
+			?.filter { it.name.startsWith(".evvdroid-") }
+			?.forEach { it.delete() }
 		dictionaries = emptyMap()
 		settings.regexDictionaryPath()?.let { java.io.File(it).delete() }
 		settings.setRegexDictionary(null, null)
