@@ -191,6 +191,11 @@ class EvvEngine private constructor(private var handle: Long, val language: Int)
 		)
 	}
 
+	fun removeWord(volume: Int, key: String): Int = synchronized(dictionaryGuard) {
+		val current = synchronized(guard) { if (closed) 0L else handle }
+		if (current == 0L) -1 else EvvNative.removeWord(current, volume, EngineText.encode(language, key))
+	}
+
 	fun lookUpWord(volume: Int, key: String): String? = synchronized(dictionaryGuard) {
 		val current = synchronized(guard) { if (closed) 0L else handle }
 		if (current == 0L) null else EvvNative.lookUpWord(current, volume, EngineText.encode(language, key))

@@ -9,8 +9,10 @@ import java.io.File
  * Two forms come in. A file in the engine's own saved binary form -- what
  * enumain.dic, enuroot.dic and enuabbr.dic are on Windows -- is handed to the
  * engine's loader, which reads it exactly as it does there ([loadBinary]).
- * What people share as text is normalized here to the engine's byte set and
- * handed to its native loader, which indexes the whole file in one pass.
+ * What people share as text is parsed once and kept as an in-memory index.
+ * That makes switching a text dictionary on or off a map selection instead of
+ * a full native dictionary reload. Saved binary dictionaries still use ECI's
+ * own loader.
  *
  * The engine matches a key against the word as spoken, byte for byte and
  * case included: a key "fatima" does not touch "Fatima". So every key is kept
@@ -35,12 +37,10 @@ object Dictionaries {
 		val entries: Map<String, Pair<String, String>>
 	)
 	private val parseCache = java.util.concurrent.ConcurrentHashMap<String, ParsedCache>()
-	private val apostropheCache = java.util.concurrent.ConcurrentHashMap<String, ParsedCache>()
 
 	/** Invalidates a parsed copy when an imported file is replaced in place. */
 	fun invalidate(file: File) {
 		parseCache.remove(file.absolutePath)
-		apostropheCache.remove(file.absolutePath)
 	}
 
 	/** Whether [file] looks like the engine's saved binary form rather than
@@ -155,78 +155,6 @@ object Dictionaries {
 		val parsed = out.toMap()
 		parseCache[path] = ParsedCache(file.length(), file.lastModified(), parsed)
 		return parsed
-	}
-
-	/** The small text-dictionary subset needed for apostrophe rewriting. All
-	 *  ordinary entries go straight to the native dictionary and do not need a
-	 *  duplicate 65k-entry Kotlin map. */
-	fun apostropheEntries(file: File): Map<String, Pair<String, String>> {
-		val path = file.absolutePath
-		val length = file.length()
-		val modified = file.lastModified()
-		apostropheCache[path]?.takeIf { it.length == length && it.modified == modified }?.let {
-			return it.entries
-		}
-		val out = LinkedHashMap<String, Pair<String, String>>()
-		try {
-			forEachEntry(file) { entry ->
-				if (isUsable(entry.first, entry.second) && entry.first.any { it == '\'' || it == '\u2019' }) {
-					out[entry.first] = entry
-				}
-			}
-		} catch (unreadable: Exception) {
-			Log.e(TAG, "cannot read ${file.name}", unreadable)
-		}
-		val parsed = out.toMap()
-		apostropheCache[path] = ParsedCache(file.length(), file.lastModified(), parsed)
-		return parsed
-	}
-
-	/** Writes a normalized, engine-encoded copy for eciLoadDict. The native
-	 *  loader indexes the whole file in one call, avoiding one JNI dictionary
-	 *  update for each entry at speech time. The source hash makes this a reusable
-	 *  cache; imports with the same path but new contents get a fresh file. */
-	fun prepareForEngine(file: File, language: Int): File {
-		val hasher = java.security.MessageDigest.getInstance("SHA-256")
-		file.inputStream().buffered().use { input ->
-			val buffer = ByteArray(16 * 1024)
-			while (true) {
-				val read = input.read(buffer)
-				if (read < 0) break
-				hasher.update(buffer, 0, read)
-			}
-		}
-		val digest = hasher.digest().take(12).joinToString("") { "%02x".format(it.toInt() and 0xff) }
-		val parent = file.parentFile ?: throw java.io.IOException("dictionary has no parent directory")
-		val sourceTag = file.nameWithoutExtension.replace(Regex("[^A-Za-z0-9_-]"), "_").take(24)
-		val cached = File(parent, ".evvdroid-$sourceTag-${language.toString(16)}-$digest.dic")
-		if (cached.exists()) return cached
-
-		val temporary = File.createTempFile("evv-dict-", ".tmp", parent)
-		try {
-			java.io.BufferedOutputStream(temporary.outputStream()).use { out ->
-				forEachEntry(file) { entry ->
-					if (!isUsable(entry.first, entry.second)) return@forEachEntry
-					val keyBytes = EngineText.encode(language, entry.first)
-					val sayBytes = EngineText.encode(language, entry.second)
-					if (keyBytes.isEmpty() || keyBytes.size > 128 || sayBytes.isEmpty() || sayBytes.size > 512) return@forEachEntry
-					val delimiter = { byte: Byte -> byte == 0.toByte() || byte == '\t'.code.toByte() || byte == '\r'.code.toByte() || byte == '\n'.code.toByte() }
-					if (keyBytes.any(delimiter) || sayBytes.any(delimiter)) return@forEachEntry
-					out.write(keyBytes)
-					out.write('\t'.code)
-					out.write(sayBytes)
-					out.write('\n'.code)
-				}
-			}
-			if (!temporary.renameTo(cached)) {
-				if (!cached.exists()) temporary.copyTo(cached)
-				temporary.delete()
-			}
-		} catch (failed: Exception) {
-			temporary.delete()
-			throw failed
-		}
-		return cached
 	}
 
 	/** One key and what to say, or null when it is no entry.

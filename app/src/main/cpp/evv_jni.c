@@ -456,6 +456,27 @@ JNIEXPORT jint JNICALL Java_org_evvdroid_EvvNative_teachWord(JNIEnv* env, jclass
 	return answer;
 }
 
+/* Removes one temporary user entry without rebuilding any loaded volume. */
+JNIEXPORT jint JNICALL Java_org_evvdroid_EvvNative_removeWord(JNIEnv* env, jclass cls, jlong handle, jint volume, jbyteArray key) {
+	instance*      in = unwrap(handle);
+	jsize          keyLen;
+	unsigned char* word;
+	jint           answer;
+	(void)cls;
+	if (in == NULL || key == NULL || in->dict == NULL_DICT_HAND)
+		return -1;
+	wait_until_idle(in);
+	keyLen = (*env)->GetArrayLength(env, key);
+	word = (unsigned char*)malloc((size_t)keyLen + 1);
+	if (word == NULL)
+		return -1;
+	(*env)->GetByteArrayRegion(env, key, 0, keyLen, (jbyte*)word);
+	word[keyLen] = 0;
+	answer = eciUpdateDict(in->eci, in->dict, volume, word, NULL);
+	free(word);
+	return answer;
+}
+
 /* What a key was taught, or nothing. This is how a test says a dictionary
    really went in rather than that a call answered nought. */
 JNIEXPORT jstring JNICALL Java_org_evvdroid_EvvNative_lookUpWord(JNIEnv* env, jclass cls, jlong handle, jint volume, jbyteArray key) {
