@@ -48,8 +48,6 @@ internal object EvvNative {
 
 	external fun teachWord(handle: Long, volume: Int, key: ByteArray, say: ByteArray): Int
 
-	external fun removeWord(handle: Long, volume: Int, key: ByteArray): Int
-
 	external fun lookUpWord(handle: Long, volume: Int, key: ByteArray): String?
 
 	external fun forgetDictionaries(handle: Long)

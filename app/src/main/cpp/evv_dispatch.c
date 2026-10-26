@@ -48,7 +48,6 @@ typedef jint (*read_fn)(JNIEnv*, jclass, jlong, jbyteArray);
 typedef void (*stop_fn)(JNIEnv*, jclass, jlong);
 typedef jint (*load_dictionary_fn)(JNIEnv*, jclass, jlong, jint, jstring);
 typedef jint (*teach_word_fn)(JNIEnv*, jclass, jlong, jint, jbyteArray, jbyteArray);
-typedef jint (*remove_word_fn)(JNIEnv*, jclass, jlong, jint, jbyteArray);
 typedef jstring (*look_up_word_fn)(JNIEnv*, jclass, jlong, jint, jbyteArray);
 typedef void (*forget_fn)(JNIEnv*, jclass, jlong);
 typedef jint (*set_param_fn)(JNIEnv*, jclass, jlong, jint, jint);
@@ -67,7 +66,6 @@ typedef struct {
 	stop_fn            stop;
 	load_dictionary_fn load_dictionary;
 	teach_word_fn      teach_word;
-	remove_word_fn     remove_word;
 	look_up_word_fn    look_up_word;
 	forget_fn          forget;
 	set_param_fn       set_param;
@@ -143,7 +141,6 @@ static language_lib* open_lib(int i) {
 	BIND(stop, "stop");
 	BIND(load_dictionary, "loadDictionary");
 	BIND(teach_word, "teachWord");
-	BIND(remove_word, "removeWord");
 	BIND(look_up_word, "lookUpWord");
 	BIND(forget, "forgetDictionaries");
 	BIND(set_param, "setParam");
@@ -234,11 +231,6 @@ JNIEXPORT jint JNICALL Java_org_evvdroid_EvvNative_loadDictionary(JNIEnv* env, j
 JNIEXPORT jint JNICALL Java_org_evvdroid_EvvNative_teachWord(JNIEnv* env, jclass cls, jlong handle, jint volume, jbyteArray key, jbyteArray say) {
 	instance* in = unwrap(handle);
 	return in == NULL ? -1 : in->lib->teach_word(env, cls, in->inner, volume, key, say);
-}
-
-JNIEXPORT jint JNICALL Java_org_evvdroid_EvvNative_removeWord(JNIEnv* env, jclass cls, jlong handle, jint volume, jbyteArray key) {
-	instance* in = unwrap(handle);
-	return in == NULL ? -1 : in->lib->remove_word(env, cls, in->inner, volume, key);
 }
 
 JNIEXPORT jstring JNICALL Java_org_evvdroid_EvvNative_lookUpWord(JNIEnv* env, jclass cls, jlong handle, jint volume, jbyteArray key) {

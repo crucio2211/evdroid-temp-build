@@ -9,10 +9,8 @@ import java.io.File
  * Two forms come in. A file in the engine's own saved binary form -- what
  * enumain.dic, enuroot.dic and enuabbr.dic are on Windows -- is handed to the
  * engine's loader, which reads it exactly as it does there ([loadBinary]).
- * What people share as text is parsed once and kept as an in-memory index.
- * That makes switching a text dictionary on or off a map selection instead of
- * a full native dictionary reload. Saved binary dictionaries still use ECI's
- * own loader.
+ * What people share as text is normalized here to the engine's byte set and
+ * handed to its native loader, which indexes the whole file in one pass.
  *
  * The engine matches a key against the word as spoken, byte for byte and
  * case included: a key "fatima" does not touch "Fatima". So every key is kept
@@ -37,10 +35,16 @@ object Dictionaries {
 		val entries: Map<String, Pair<String, String>>
 	)
 	private val parseCache = java.util.concurrent.ConcurrentHashMap<String, ParsedCache>()
+	private val apostropheCache = java.util.concurrent.ConcurrentHashMap<String, ParsedCache>()
+	private val preparedFiles = java.util.concurrent.ConcurrentHashMap<String, File>()
+	private val prepareLock = Any()
 
 	/** Invalidates a parsed copy when an imported file is replaced in place. */
 	fun invalidate(file: File) {
 		parseCache.remove(file.absolutePath)
+		apostropheCache.remove(file.absolutePath)
+		val prefix = file.absolutePath + "|"
+		for (key in preparedFiles.keys) if (key.startsWith(prefix)) preparedFiles.remove(key)
 	}
 
 	/** Whether [file] looks like the engine's saved binary form rather than
@@ -155,6 +159,83 @@ object Dictionaries {
 		val parsed = out.toMap()
 		parseCache[path] = ParsedCache(file.length(), file.lastModified(), parsed)
 		return parsed
+	}
+
+	/** The small text-dictionary subset needed for apostrophe rewriting. All
+	 *  ordinary entries go straight to the native dictionary and do not need a
+	 *  duplicate 65k-entry Kotlin map. */
+	fun apostropheEntries(file: File): Map<String, Pair<String, String>> {
+		val path = file.absolutePath
+		val length = file.length()
+		val modified = file.lastModified()
+		synchronized(apostropheCache) {
+			apostropheCache[path]?.takeIf { it.length == length && it.modified == modified }?.let {
+				return it.entries
+			}
+			val out = LinkedHashMap<String, Pair<String, String>>()
+			try {
+				forEachEntry(file) { entry ->
+					if (isUsable(entry.first, entry.second) && entry.first.any { it == '\'' || it == '\u2019' }) {
+						out[entry.first] = entry
+					}
+				}
+			} catch (unreadable: Exception) {
+				Log.e(TAG, "cannot read ${file.name}", unreadable)
+			}
+			val parsed = out.toMap()
+			apostropheCache[path] = ParsedCache(file.length(), file.lastModified(), parsed)
+			return parsed
+		}
+	}
+
+	/** Writes a normalized, engine-encoded copy for eciLoadDict. Imported files
+	 *  are immutable copies; path, size and modification time identify a cached
+	 *  encoding without hashing the full file on every engine or language switch. */
+	fun prepareForEngine(file: File, language: Int): File {
+		val parent = file.parentFile ?: throw java.io.IOException("dictionary has no parent directory")
+		val sourceTag = file.nameWithoutExtension.replace(Regex("[^A-Za-z0-9_-]"), "_").take(24)
+		val sourcePath = file.absolutePath
+		val length = file.length()
+		val modified = file.lastModified()
+		val cacheKey = "$sourcePath|$length|$modified|$language"
+		preparedFiles[cacheKey]?.takeIf { it.isFile }?.let { return it }
+		val pathHash = java.security.MessageDigest.getInstance("SHA-256")
+			.digest(sourcePath.toByteArray(Charsets.UTF_8))
+			.take(8).joinToString("") { "%02x".format(it.toInt() and 0xff) }
+		val cached = File(parent, ".evvdroid-$sourceTag-${language.toString(16)}-$length-$modified-$pathHash.dic")
+		synchronized(prepareLock) {
+			preparedFiles[cacheKey]?.takeIf { it.isFile }?.let { return it }
+			if (cached.exists()) {
+				preparedFiles[cacheKey] = cached
+				return cached
+			}
+			val temporary = File.createTempFile("evv-dict-", ".tmp", parent)
+			try {
+				java.io.BufferedOutputStream(temporary.outputStream()).use { out ->
+					forEachEntry(file) { entry ->
+						if (!isUsable(entry.first, entry.second)) return@forEachEntry
+						val keyBytes = EngineText.encode(language, entry.first)
+						val sayBytes = EngineText.encode(language, entry.second)
+						if (keyBytes.isEmpty() || keyBytes.size > 128 || sayBytes.isEmpty() || sayBytes.size > 512) return@forEachEntry
+						val delimiter = { byte: Byte -> byte == 0.toByte() || byte == '\t'.code.toByte() || byte == '\r'.code.toByte() || byte == '\n'.code.toByte() }
+						if (keyBytes.any(delimiter) || sayBytes.any(delimiter)) return@forEachEntry
+						out.write(keyBytes)
+						out.write('\t'.code)
+						out.write(sayBytes)
+						out.write('\n'.code)
+					}
+				}
+				if (!temporary.renameTo(cached)) {
+					if (!cached.exists()) temporary.copyTo(cached)
+					temporary.delete()
+				}
+			} catch (failed: Exception) {
+				temporary.delete()
+				throw failed
+			}
+			preparedFiles[cacheKey] = cached
+		}
+		return cached
 	}
 
 	/** One key and what to say, or null when it is no entry.

@@ -25,7 +25,11 @@ class EvvTtsService : TextToSpeechService() {
 	private val engineExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { task ->
 		Thread(task, "evvdroid-engine-load").apply { isDaemon = true }
 	}
+	private val engineCleanupExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { task ->
+		Thread(task, "evvdroid-engine-cleanup").apply { isDaemon = true }
+	}
 	private val engineLoadLock = Any()
+	private val dictionaryWarmup = java.util.concurrent.CountDownLatch(1)
 	private var pendingEngineLanguage: Int? = null
 	private var pendingEngine: java.util.concurrent.Future<EvvEngine?>? = null
 
@@ -40,12 +44,7 @@ class EvvTtsService : TextToSpeechService() {
 	private var loadedDictionaries: Map<Int, String> = emptyMap()
 	private var loadedDictionaryLangs: Map<Int, Int> = emptyMap()
 	private var loadedDictionaryStamps: Map<Int, Pair<Long, Long>> = emptyMap()
-	private var loadedNativeDictionaries: Map<Int, String> = emptyMap()
-	private var loadedNativeDictionaryLangs: Map<Int, Int> = emptyMap()
-	private var loadedNativeDictionaryStamps: Map<Int, Pair<Long, Long>> = emptyMap()
-	private var loadedNativeEngine: EvvEngine? = null
-	private var loadedTextRootStamp: Triple<String, Long, Long>? = null
-	private val taughtTextRootWords = java.util.concurrent.ConcurrentHashMap.newKeySet<Pair<Int, String>>()
+	private var loadedEngine: EvvEngine? = null
 	/** Picked files as read: engine language to exact dictionary key, to every
 	 *  entry written under it, with the volume each was picked for and
 	 *  the key as written and what to say. Files for one language read
@@ -53,8 +52,7 @@ class EvvTtsService : TextToSpeechService() {
 	 *  it. Taught words live on the engine instance, so [taughtWords]
 	 *  starts over with every new one. */
 	private data class DictEntry(val volume: Int, val key: String, val say: String)
-	private data class TextDictionary(val volume: Int, val entries: Map<String, Pair<String, String>>)
-	private var wordMaps: Map<Int, List<TextDictionary>> = emptyMap()
+	private var wordMaps: Map<Int, Map<String, List<DictEntry>>> = emptyMap()
 	private val taughtWords = java.util.concurrent.ConcurrentHashMap.newKeySet<Pair<Int, String>>()
 
 	/** Dictionary tokens can include Unicode letters and marks, apostrophes,
@@ -69,27 +67,38 @@ class EvvTtsService : TextToSpeechService() {
 		settings = Settings(this)
 		super.onCreate()
 		warmDictionaryCaches()
+		val defaultLanguage = matchLanguage(Locale.getDefault().language, Locale.getDefault().country)?.first
+			?: EvvEngine.available.firstOrNull()
+		if (defaultLanguage != null) requestEngine(resolveLanguage(settings, defaultLanguage))
 		// The emoji table builds on first touch, which
 		// would otherwise land on the first utterance. Warm it here, off
 		// every thread that speaks.
 		Thread({ EmojiNames.STARTERS.size }, "emoji-warmup").start()
 	}
 
-	/** Parse text dictionaries after service startup, without making the first
-	 *  TalkBack request scan every saved file. */
+	/** Prepare native files and apostrophe indexes before the first utterance,
+	 *  and let the engine worker do that work off the synthesis thread. */
 	private fun warmDictionaryCaches() {
 		val saved = settings ?: return
-		val paths = saved.dictionaryPaths()
+		val paths = saved.dictionaryPaths().filterKeys {
+			saved.useDictionary(it) && (it != Eci.DICT_ABBREVIATION || saved.abbreviations)
+		}
 		Thread({
-			for ((volume, path) in paths) {
-				try {
-					val file = java.io.File(path)
-					if (file.exists() && !Dictionaries.isBinary(file)) {
-						Dictionaries.parse(file)
+			try {
+				for ((volume, path) in paths) {
+					try {
+						val file = java.io.File(path)
+						if (file.exists() && !Dictionaries.isBinary(file)) {
+							val language = saved.dictionaryLanguageResolved(volume, EvvEngine.available)
+							Dictionaries.prepareForEngine(file, language)
+							Dictionaries.apostropheEntries(file)
+						}
+					} catch (failed: Exception) {
+						Log.e(TAG, "could not warm dictionary volume $volume", failed)
 					}
-				} catch (failed: Exception) {
-					Log.e(TAG, "could not warm dictionary volume $volume", failed)
 				}
+			} finally {
+				dictionaryWarmup.countDown()
 			}
 		}, "evvdroid-dictionary-cache").apply { isDaemon = true }.start()
 	}
@@ -99,6 +108,8 @@ class EvvTtsService : TextToSpeechService() {
 		engineExecutor.shutdown()
 		try {
 			engineExecutor.awaitTermination(2, java.util.concurrent.TimeUnit.SECONDS)
+			engineCleanupExecutor.shutdown()
+			engineCleanupExecutor.awaitTermination(2, java.util.concurrent.TimeUnit.SECONDS)
 		} catch (interrupted: InterruptedException) {
 			Thread.currentThread().interrupt()
 		}
@@ -225,7 +236,15 @@ class EvvTtsService : TextToSpeechService() {
 			return@synchronized it
 		}
 		pendingEngineLanguage = language
-		engineExecutor.submit<EvvEngine?> { openEngine(language) }.also { pendingEngine = it }
+		engineExecutor.submit<EvvEngine?> {
+			try {
+				dictionaryWarmup.await()
+			} catch (interrupted: InterruptedException) {
+				Thread.currentThread().interrupt()
+				return@submit null
+			}
+			openEngine(language)
+		}.also { pendingEngine = it }
 	}
 
 	private fun ensureEngine(language: Int): EvvEngine? {
@@ -245,13 +264,26 @@ class EvvTtsService : TextToSpeechService() {
 	private fun openEngine(language: Int): EvvEngine? {
 		val held = engine
 		if (held != null && held.language == language) return held
-		held?.close()
-		engine = null
-		val made = EvvEngine.open(language)
+		val made = EvvEngine.open(language) ?: return null
 		engine = made
-		// A new engine owns a fresh native dictionary set.
-		taughtWords.clear()
-		if (made != null) applySettings(made)
+		try {
+			// A new engine owns a fresh native dictionary set.
+			taughtWords.clear()
+			applySettings(made)
+		} catch (failed: Exception) {
+			made.close()
+			engine = held
+			throw failed
+		}
+		// Release the old language after the replacement is ready. Destroying an
+		// engine with large external dictionaries can itself take noticeable time.
+		if (held != null) {
+			try {
+				engineCleanupExecutor.execute { held.close() }
+			} catch (_: java.util.concurrent.RejectedExecutionException) {
+				held.close()
+			}
+		}
 		return made
 	}
 
@@ -283,8 +315,8 @@ class EvvTtsService : TextToSpeechService() {
 		}
 	}
 
-	/** Text dictionaries are cached as exact-key maps, so toggling them does not
-	 *  clear and reload every ECI volume. Binary dictionaries remain native. */
+	/** Parses imported files for apostrophe handling, then loads each normalized
+	 *  text dictionary through the engine's native file loader in one call. */
 	private fun loadDictionaries(target: EvvEngine, s: Settings) {
 		// The engine flag below controls its built-in abbreviation list. Keep
 		// the user's abbreviation volume behind the same switch: otherwise a
@@ -298,81 +330,64 @@ class EvvTtsService : TextToSpeechService() {
 			val file = java.io.File(path)
 			file.length() to file.lastModified()
 		}
-		val binary = want.mapValues { (_, path) ->
-			val file = java.io.File(path)
-			file.exists() && Dictionaries.isBinary(file)
-		}
-		val nativeWant = want.filterKeys { binary[it] == true }
-		val nativeLangs = langs.filterKeys { it in nativeWant }
-		val nativeStamps = stamps.filterKeys { it in nativeWant }
-		val rootTextStamp = want[Eci.DICT_ROOT]?.let { path ->
-			if (binary[Eci.DICT_ROOT] != true) java.io.File(path).let { Triple(path, it.length(), it.lastModified()) } else null
-		}
-		val dictionariesChanged = want != loadedDictionaries || langs != loadedDictionaryLangs || stamps != loadedDictionaryStamps
-		val textRootChanged = rootTextStamp != loadedTextRootStamp
-		val nativeChanged = nativeWant != loadedNativeDictionaries || nativeLangs != loadedNativeDictionaryLangs ||
-			nativeStamps != loadedNativeDictionaryStamps || target !== loadedNativeEngine
-		if (!dictionariesChanged && !nativeChanged && !textRootChanged) return
-		if (dictionariesChanged) {
-			val read = LinkedHashMap<Int, MutableList<TextDictionary>>()
+		if (want == loadedDictionaries && langs == loadedDictionaryLangs && stamps == loadedDictionaryStamps && target === loadedEngine) return
+		target.forgetDictionaries()
+		if (want != loadedDictionaries || langs != loadedDictionaryLangs || stamps != loadedDictionaryStamps || target !== loadedEngine) {
+			val read = LinkedHashMap<Int, LinkedHashMap<String, MutableList<DictEntry>>>()
 			for ((volume, path) in want) {
 				try {
 					val file = java.io.File(path)
 					if (!file.exists()) continue
-					if (binary[volume] == true) continue
-					val entries = Dictionaries.parse(file)
-					Log.i(TAG, "volume $volume: ${entries.size} cached entries from ${file.name}")
+					// A file in the engine's own form is not parsed here: the
+					// engine reads it, below.
+					if (Dictionaries.isBinary(file)) continue
+					val entries = Dictionaries.apostropheEntries(file)
+					Log.i(TAG, "volume $volume: ${entries.size} apostrophe entries from ${file.name}")
 					// Keep each dictionary with the language chosen at import:
 					// enuroot belongs to US English; engroot belongs to UK English.
-					val into = read.getOrPut(langs[volume] ?: target.language) { mutableListOf() }
-					into.add(TextDictionary(volume, entries))
+					val into = read.getOrPut(langs[volume] ?: target.language) { LinkedHashMap() }
+					for ((exact, entry) in entries) {
+						into.getOrPut(exact) { mutableListOf() }
+							.add(DictEntry(volume, entry.first, entry.second))
+					}
 				} catch (failed: Exception) {
 					// One bad volume must not take the utterance, or every
 					// utterance after it, down with it.
 					Log.e(TAG, "volume $volume not read", failed)
 				}
 			}
-			wordMaps = read.mapValues { (_, dictionaries) ->
-				dictionaries.sortedBy { dictionaryPriority(it.volume) }
-			}
+			wordMaps = read
 		}
+		taughtWords.clear()
 		loadedDictionaries = want
 		loadedDictionaryLangs = langs
 		loadedDictionaryStamps = stamps
-		if (nativeChanged) {
-			target.forgetDictionaries()
-			taughtWords.clear()
-			taughtTextRootWords.clear()
-			loadedNativeDictionaries = nativeWant
-			loadedNativeDictionaryLangs = nativeLangs
-			loadedNativeDictionaryStamps = nativeStamps
-			loadedNativeEngine = target
-			loadedTextRootStamp = rootTextStamp
-			loadEngineDictionaries(target, nativeWant, nativeLangs)
-		} else if (textRootChanged) {
-			// Root text stems are taught temporarily so ECI can add possessive
-			// suffixes. Remove only those few overrides when that file changes;
-			// do not forget and reload every native dictionary volume.
-			for ((volume, key) in taughtTextRootWords) {
-				val result = target.removeWord(volume, key)
-				if (result != 0) Log.e(TAG, "volume $volume could not remove stale root stem $key: $result")
-				taughtWords.remove(volume to key)
-			}
-			taughtTextRootWords.clear()
-			loadedTextRootStamp = rootTextStamp
-		}
+		loadedEngine = target
+		loadEngineDictionaries(target, want, langs)
 	}
 
-	/** Saved binary dictionaries use the engine's native loader. Text entries
-	 *  are already handled by the cached in-memory index. */
+	/** Binary dictionaries use the engine's saved form. Text dictionaries are
+	 *  normalized and encoded during import/cache warmup, then indexed natively
+	 *  in one call. A root file also goes to main so it can override a built-in
+	 *  main entry, matching the existing root precedence. */
 	private fun loadEngineDictionaries(target: EvvEngine, want: Map<Int, String>, langs: Map<Int, Int>) {
 		for ((volume, path) in want) {
 			if ((langs[volume] ?: target.language) != target.language) continue
 			try {
 				val file = java.io.File(path)
-				if (!file.exists() || !Dictionaries.isBinary(file)) continue
-				val ok = Dictionaries.loadBinary(target, volume, file)
-				Log.i(TAG, "volume $volume: ${file.name} ${if (ok) "loaded by the engine" else "refused by the engine"}")
+				if (!file.exists()) continue
+				if (Dictionaries.isBinary(file)) {
+					val ok = Dictionaries.loadBinary(target, volume, file)
+					Log.i(TAG, "volume $volume: ${file.name} ${if (ok) "loaded by the engine" else "refused by the engine"}")
+					continue
+				}
+				val ready = Dictionaries.prepareForEngine(file, target.language)
+				val destinations = if (volume == Eci.DICT_ROOT) listOf(Eci.DICT_MAIN, Eci.DICT_ROOT) else listOf(volume)
+				for (destination in destinations) {
+					val result = target.loadDictionary(destination, ready.absolutePath)
+					if (result != 0) Log.e(TAG, "volume $destination refused ${file.name}: $result")
+				}
+				Log.i(TAG, "volume $volume: text dictionary indexed natively from ${file.name}")
 			} catch (failed: Exception) {
 				Log.e(TAG, "volume $volume not loaded by the engine", failed)
 			}
@@ -386,7 +401,9 @@ class EvvTtsService : TextToSpeechService() {
 	private fun teachVolumes(volume: Int): List<Int> =
 		if (volume == Eci.DICT_ROOT) listOf(Eci.DICT_MAIN, Eci.DICT_ROOT) else listOf(volume)
 
-	/** True when [say] contains an Eloquence inline phoneme annotation. */
+	/** True when [say] is Eloquence inline phonemes (backtick form), which
+	 *  must go through teachWord — never into the text stream (that broke
+	 *  hetero roots and words like produce / persona). */
 	private fun isPhonemeSay(say: String): Boolean =
 		say.indexOf('`') >= 0 || (say.startsWith("[") && say.endsWith("]"))
 
@@ -414,10 +431,8 @@ class EvvTtsService : TextToSpeechService() {
 	private fun lookupRootEntries(target: EvvEngine, language: Int, word: String): List<DictEntry> {
 		if (target.language != language || Eci.DICT_ROOT !in loadedDictionaries) return emptyList()
 		if ((loadedDictionaryLangs[Eci.DICT_ROOT] ?: language) != language) return emptyList()
-		return rootApostropheStems(word).flatMap { stem ->
-			val textEntry = lookupEntryInVolume(language, Eci.DICT_ROOT, stem)
-			if (textEntry != null) listOf(textEntry)
-			else target.lookUpWord(Eci.DICT_ROOT, stem)?.let { say -> listOf(DictEntry(Eci.DICT_ROOT, stem, say)) }.orEmpty()
+		return rootApostropheStems(word).mapNotNull { stem ->
+			target.lookUpWord(Eci.DICT_ROOT, stem)?.let { say -> DictEntry(Eci.DICT_ROOT, stem, say) }
 		}.distinctBy { it.key }
 	}
 	private fun apostropheVariants(word: String): Set<String> = linkedSetOf(
@@ -425,63 +440,42 @@ class EvvTtsService : TextToSpeechService() {
 		word.replace('\u2019', '\''),
 		word.replace('\'', '\u2019')
 	)
-	/** Root entries precede main entries just as they did when the root file was
-	 *  loaded into both native volumes: a custom root pronunciation must be able
-	 *  to override the engine's built-in main pronunciation. */
-	private fun dictionaryPriority(volume: Int): Int = when (volume) {
-		Eci.DICT_ROOT -> 0
-		Eci.DICT_MAIN -> 1
-		else -> 2
-	}
-
 	/** Match dictionary keys with Eloquence's case-sensitive rule. A sentence
 	 *  initial capital may use a lowercase key, as the on-demand teacher installs
 	 *  that form; an uppercase key such as `NA` must not rewrite lowercase `na`.
-	 *  Root entries take precedence over main entries. */
+	 *  Prefer MAIN over ROOT when several volumes match. */
 	private fun lookupEntries(language: Int, word: String): List<DictEntry> {
-		val dictionaries = wordMaps[language] ?: return emptyList()
-		for (dictionary in dictionaries) {
-			lookupEntryInVolume(language, dictionary.volume, word)?.let { return listOf(it) }
+		val entries = wordMaps[language] ?: return emptyList()
+		for (form in apostropheVariants(word)) {
+			(entries[form] ?: entries[form + "."])?.let { return it }
+		}
+		if (!isSentenceCapitalized(word)) return emptyList()
+		for (form in apostropheVariants(word.lowercase())) {
+			(entries[form] ?: entries[form + "."])?.let { return it }
 		}
 		return emptyList()
-	}
-	private fun lookupEntryInVolume(language: Int, volume: Int, word: String): DictEntry? {
-		val dictionary = wordMaps[language]?.firstOrNull { it.volume == volume } ?: return null
-		for (form in apostropheVariants(word)) {
-			(dictionary.entries[form] ?: dictionary.entries[form + "."])?.let {
-				return DictEntry(volume, it.first, it.second)
-			}
-		}
-		if (!isSentenceCapitalized(word)) return null
-		for (form in apostropheVariants(word.lowercase())) {
-			(dictionary.entries[form] ?: dictionary.entries[form + "."])?.let {
-				return DictEntry(volume, it.first, it.second)
-			}
-		}
-		return null
 	}
 	private fun isSentenceCapitalized(word: String): Boolean =
 		word.isNotEmpty() && word[0].isUpperCase() && word.drop(1).none { it.isUpperCase() }
 
-	/** Cached text entries are applied directly, so ordinary text phonemes do
-	 *  not need one native JNI update per dictionary entry or a reload on toggle. */
+	/** Plain respellings are written in place. Phoneme readings for words with
+	 *  apostrophes are inlined because the engine's word scan can split there;
+	 *  other phoneme entries continue through teachWord. */
 	private fun applyRespellings(target: EvvEngine, text: String): String {
 		if (text.isEmpty()) return text
 		return WORD.replace(text) { match ->
 			val word = match.value
-			val entry = lookupEntries(target.language, word).firstOrNull()
+			val entry = lookupEntries(target.language, word).minByOrNull { it.volume }
 			val say = entry?.say ?: if (word.any { it == '\'' || it == '\u2019' }) {
 				loadedDictionaries.entries
 					.filter { (volume, _) -> (loadedDictionaryLangs[volume] ?: target.language) == target.language }
-					.sortedBy { dictionaryPriority(it.key) }
+					.sortedBy { it.key }
 					.firstNotNullOfOrNull { (volume, path) ->
 						val file = java.io.File(path)
 						if (file.exists() && Dictionaries.isBinary(file)) binaryDictionarySay(target, volume, word) else null
 					}
 			} else null
-			if (say != null && isPhonemeSay(say) &&
-				(entry != null || word.any { it == '\'' || it == '\u2019' })
-			) {
+			if (say != null && isPhonemeSay(say) && word.any { it == '\'' || it == '\u2019' }) {
 				if (say.startsWith("[") && say.endsWith("]") && !say.startsWith("`[")) "`$say" else say
 			} else if (say != null && entry != null && !isPhonemeSay(say)) {
 				if (word.isNotEmpty() && word[0].isUpperCase() && say.isNotEmpty() && say[0].isLowerCase()) {
@@ -495,8 +489,8 @@ class EvvTtsService : TextToSpeechService() {
 		}
 	}
 
-	/** Teaches only root stems needed for ECI to handle a possessive suffix.
-	 *  Ordinary text entries are rewritten from the cached map. */
+	/** Keeps the root-stem fallback for possessives and contractions. Normal
+	 *  dictionary words are already indexed by the native file loader. */
 	private fun teachUnknownWords(target: EvvEngine, text: String) {
 		if (wordMaps.isEmpty() || text.isEmpty()) return
 		for (raw in WORD.findAll(text)) {
@@ -524,9 +518,6 @@ class EvvTtsService : TextToSpeechService() {
 						try {
 							if (target.teachWord(volume, form, say) == 0) {
 								taughtWords.add(k)
-								if (entry.volume == Eci.DICT_ROOT && loadedTextRootStamp != null) {
-									taughtTextRootWords.add(k)
-								}
 							} else {
 								Log.e(TAG, "volume $volume refused dictionary word $form")
 							}
