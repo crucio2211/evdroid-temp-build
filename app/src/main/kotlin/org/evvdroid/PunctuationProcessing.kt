@@ -34,6 +34,7 @@ object PunctuationProcessing {
 			val adv = Character.charCount(cp)
 			var rep: String? = null
 			var pres = PunctSymbols.PASS
+			val sentenceEnding = isSentenceMark(cp) && isSentenceEnding(text, i, text.length)
 			if (cp > 0x20) {
 				val entry = PunctSymbols.lookup(cp)
 				if (entry != null) {
@@ -50,16 +51,16 @@ object PunctuationProcessing {
 			}
 			// Speak periods as the lowercase word "dot" when punctuation is
 			// enabled at Some or above. Decimal points remain numeric punctuation.
-			if (cp == '.'.code && level >= SOME && rep != null &&
+			if (cp == '.'.code && level >= SOME && rep != null && !sentenceEnding &&
 				!(i > 0 && i + adv < text.length && text[i - 1] in '0'..'9' && text[i + adv] in '0'..'9')
 			) {
 				rep = "dot"
 				pres = PunctSymbols.PASS
 			}
 			// Sentence boundary .!? : below all it is prosody, not speech.
-			if (isSentenceMark(cp) && isSentenceEnding(text, i, text.length)) {
-				if (level < ALL && !(cp == '.'.code && level >= SOME && rep != null)) rep = null
-				if (!(cp == '.'.code && level >= SOME && rep != null)) pres = PunctSymbols.ALWAYS
+			if (sentenceEnding) {
+				if (cp == '.'.code || level < ALL) rep = null
+				pres = PunctSymbols.ALWAYS
 			}
 			if (rep != null) {
 				pad(out)
