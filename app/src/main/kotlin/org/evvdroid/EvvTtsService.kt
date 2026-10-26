@@ -332,7 +332,9 @@ class EvvTtsService : TextToSpeechService() {
 					Log.e(TAG, "volume $volume not read", failed)
 				}
 			}
-			wordMaps = read.mapValues { (_, dictionaries) -> dictionaries.sortedBy { it.volume } }
+			wordMaps = read.mapValues { (_, dictionaries) ->
+				dictionaries.sortedBy { dictionaryPriority(it.volume) }
+			}
 		}
 		loadedDictionaries = want
 		loadedDictionaryLangs = langs
@@ -423,10 +425,19 @@ class EvvTtsService : TextToSpeechService() {
 		word.replace('\u2019', '\''),
 		word.replace('\'', '\u2019')
 	)
+	/** Root entries precede main entries just as they did when the root file was
+	 *  loaded into both native volumes: a custom root pronunciation must be able
+	 *  to override the engine's built-in main pronunciation. */
+	private fun dictionaryPriority(volume: Int): Int = when (volume) {
+		Eci.DICT_ROOT -> 0
+		Eci.DICT_MAIN -> 1
+		else -> 2
+	}
+
 	/** Match dictionary keys with Eloquence's case-sensitive rule. A sentence
 	 *  initial capital may use a lowercase key, as the on-demand teacher installs
 	 *  that form; an uppercase key such as `NA` must not rewrite lowercase `na`.
-	 *  Prefer MAIN over ROOT when several volumes match. */
+	 *  Root entries take precedence over main entries. */
 	private fun lookupEntries(language: Int, word: String): List<DictEntry> {
 		val dictionaries = wordMaps[language] ?: return emptyList()
 		for (dictionary in dictionaries) {
@@ -458,11 +469,11 @@ class EvvTtsService : TextToSpeechService() {
 		if (text.isEmpty()) return text
 		return WORD.replace(text) { match ->
 			val word = match.value
-			val entry = lookupEntries(target.language, word).minByOrNull { it.volume }
+			val entry = lookupEntries(target.language, word).firstOrNull()
 			val say = entry?.say ?: if (word.any { it == '\'' || it == '\u2019' }) {
 				loadedDictionaries.entries
 					.filter { (volume, _) -> (loadedDictionaryLangs[volume] ?: target.language) == target.language }
-					.sortedBy { it.key }
+					.sortedBy { dictionaryPriority(it.key) }
 					.firstNotNullOfOrNull { (volume, path) ->
 						val file = java.io.File(path)
 						if (file.exists() && Dictionaries.isBinary(file)) binaryDictionarySay(target, volume, word) else null
