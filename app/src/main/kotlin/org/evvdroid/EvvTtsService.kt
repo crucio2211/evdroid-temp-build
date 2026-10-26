@@ -44,7 +44,6 @@ class EvvTtsService : TextToSpeechService() {
 	private var loadedDictionaries: Map<Int, String> = emptyMap()
 	private var loadedDictionaryLangs: Map<Int, Int> = emptyMap()
 	private var loadedDictionaryStamps: Map<Int, Pair<Long, Long>> = emptyMap()
-	private var loadedTextDictionaries: Set<Int> = emptySet()
 	private var loadedEngine: EvvEngine? = null
 	/** Picked files as read: engine language to exact dictionary key, to every
 	 *  entry written under it, with the volume each was picked for and
@@ -335,7 +334,6 @@ class EvvTtsService : TextToSpeechService() {
 		target.forgetDictionaries()
 		if (want != loadedDictionaries || langs != loadedDictionaryLangs || stamps != loadedDictionaryStamps || target !== loadedEngine) {
 			val read = LinkedHashMap<Int, LinkedHashMap<String, MutableList<DictEntry>>>()
-			val textVolumes = LinkedHashSet<Int>()
 			for ((volume, path) in want) {
 				try {
 					val file = java.io.File(path)
@@ -343,7 +341,6 @@ class EvvTtsService : TextToSpeechService() {
 					// A file in the engine's own form is not parsed here: the
 					// engine reads it, below.
 					if (Dictionaries.isBinary(file)) continue
-					textVolumes.add(volume)
 					val entries = Dictionaries.apostropheEntries(file)
 					Log.i(TAG, "volume $volume: ${entries.size} apostrophe entries from ${file.name}")
 					// Keep each dictionary with the language chosen at import:
@@ -360,7 +357,6 @@ class EvvTtsService : TextToSpeechService() {
 				}
 			}
 			wordMaps = read
-			loadedTextDictionaries = textVolumes
 		}
 		taughtWords.clear()
 		loadedDictionaries = want
@@ -436,11 +432,7 @@ class EvvTtsService : TextToSpeechService() {
 		if (target.language != language || Eci.DICT_ROOT !in loadedDictionaries) return emptyList()
 		if ((loadedDictionaryLangs[Eci.DICT_ROOT] ?: language) != language) return emptyList()
 		return rootApostropheStems(word).mapNotNull { stem ->
-			// Text root files are indexed once in MAIN so they can override
-			// built-in main entries. Binary root files stay in ROOT.
-			val say = target.lookUpWord(Eci.DICT_ROOT, stem)
-				?: if (Eci.DICT_ROOT in loadedTextDictionaries) target.lookUpWord(Eci.DICT_MAIN, stem) else null
-			say?.let { DictEntry(Eci.DICT_ROOT, stem, it) }
+			target.lookUpWord(Eci.DICT_ROOT, stem)?.let { say -> DictEntry(Eci.DICT_ROOT, stem, say) }
 		}.distinctBy { it.key }
 	}
 	private fun apostropheVariants(word: String): Set<String> = linkedSetOf(
