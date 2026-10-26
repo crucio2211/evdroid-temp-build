@@ -27,15 +27,13 @@ val buildNative by tasks.registering(Exec::class) {
 	description = "Cross-compiles the openevv engine and the JNI bridge for each ABI."
 	val engine = rootProject.layout.projectDirectory.dir("native/openevv")
 	val script = rootProject.layout.projectDirectory.file("native/build-native.sh")
-	// Deliberately not the engine's own sources. The script patches them, so a
-	// task declaring them would be rewriting its own inputs every time it ran
-	// and would never settle -- which showed up as the first build after any
-	// change failing and the next one succeeding. What actually decides the
-	// output is the engine's commit, the patches laid on it, and the two
-	// files here. Editing native/openevv by hand wants --rerun-tasks.
+	// Most engine sources are immutable vendored inputs. The heteronym source
+	// is listed explicitly because pronunciation fixes edit it directly;
+	// otherwise Gradle could reuse a native library built from stale source.
 	// A file tree rather than a directory, because there is nothing to patch at
 	// the moment and git does not carry an empty one.
 	inputs.files(rootProject.fileTree("native/patches"))
+	inputs.file(engine.file("src/eci/hetero/eci_hetero.c"))
 	inputs.file(rootProject.layout.projectDirectory.file("native/android.mk"))
 	inputs.file(script)
 	inputs.file(layout.projectDirectory.file("src/main/cpp/evv_jni.c"))

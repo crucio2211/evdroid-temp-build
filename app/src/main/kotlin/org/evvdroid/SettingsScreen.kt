@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -17,6 +18,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
@@ -245,7 +247,7 @@ fun SettingsScreen(state: SettingsModel) {
 			onChange = state::chooseRegexDictionaryEnabled
 		)
 		ActionRow(stringResource(R.string.dictionary_remove), state::removeDictionaries)
-		if (state.pendingDictSlot != null) {
+		if (!state.dictionaryImporting && state.pendingDictSlot != null) {
 			val langs = state.dictLanguages
 			LanguageDialog(
 				title = stringResource(R.string.dictionary_language_title),
@@ -253,6 +255,20 @@ fun SettingsScreen(state: SettingsModel) {
 				chosen = langs.indexOf(state.pendingDictLang).coerceAtLeast(0),
 				onChoose = { state.choosePendingDictionaryLanguage(langs[it]) },
 				onDismiss = state::dismissPendingDictionary
+			)
+		}
+		if (state.dictionaryImporting) {
+			AlertDialog(
+				onDismissRequest = {},
+				title = { Text(stringResource(R.string.dictionary_importing)) },
+				text = {
+					Row(verticalAlignment = Alignment.CenterVertically) {
+						CircularProgressIndicator()
+						Spacer(Modifier.width(16.dp))
+						Text(stringResource(R.string.dictionary_importing_message))
+					}
+				},
+				confirmButton = {}
 			)
 		}
 

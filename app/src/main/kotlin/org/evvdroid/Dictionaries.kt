@@ -30,6 +30,18 @@ import java.io.File
  */
 object Dictionaries {
 
+	private data class ParsedCache(
+		val length: Long,
+		val modified: Long,
+		val entries: Map<String, Pair<String, String>>
+	)
+	private val parseCache = java.util.concurrent.ConcurrentHashMap<String, ParsedCache>()
+
+	/** Invalidates a parsed copy when an imported file is replaced in place. */
+	fun invalidate(file: File) {
+		parseCache.remove(file.absolutePath)
+	}
+
 	/** Whether [file] looks like the engine's saved binary form rather than
 	 *  text. Its bytes are never taught as words, which can fault the engine
 	 *  into silence: a file with nought bytes in its head goes to the
@@ -99,8 +111,7 @@ object Dictionaries {
 		var taught = 0
 		var refused = 0
 		try {
-			forEachLineSafe(file) { line ->
-				val entry = splitEntry(line) ?: return@forEachLineSafe
+			forEachEntry(file) { entry ->
 				if (isUsable(entry.first, entry.second)) {
 					if (engine.teachWord(volume, entry.first, entry.second) == 0) taught++ else refused++
 				} else {
@@ -122,10 +133,19 @@ object Dictionaries {
 	 *  here touches the engine. A later duplicate of the very same key wins,
 	 *  the way sequential teaching would leave it. */
 	fun parse(file: File): Map<String, Pair<String, String>> {
+		val path = file.absolutePath
+		val length = file.length()
+		val modified = file.lastModified()
+		parseCache[path]?.takeIf { it.length == length && it.modified == modified }?.let {
+			return it.entries
+		}
+		// Do not hold a global lock while reading a large dictionary. The TTS
+		// service warms caches in the background; if speech arrives at the same
+		// time, it may do a second parse instead of blocking TalkBack behind the
+		// cache warmup. Imported files are immutable after being copied in.
 		val out = LinkedHashMap<String, Pair<String, String>>()
 		try {
-			forEachLineSafe(file) { line ->
-				val entry = splitEntry(line) ?: return@forEachLineSafe
+			forEachEntry(file) { entry ->
 				if (isUsable(entry.first, entry.second)) {
 					out[entry.first] = entry
 				}
@@ -133,10 +153,12 @@ object Dictionaries {
 		} catch (unreadable: Exception) {
 			Log.e(TAG, "cannot read ${file.name}", unreadable)
 		}
-		return out
+		val parsed = out.toMap()
+		parseCache[path] = ParsedCache(file.length(), file.lastModified(), parsed)
+		return parsed
 	}
 
-	/** A line as a key and what to say, or null when it is no entry.
+	/** One key and what to say, or null when it is no entry.
 	 *  Accepts tab separation or whitespace, ignores comments (#, //, ;),
 	 *  and ensures phoneme entries starting with [ carry the required backtick. */
 	fun splitEntry(rawLine: String): Pair<String, String>? {
@@ -160,6 +182,25 @@ object Dictionaries {
 			rawSay
 		}
 		return rawKey to say
+	}
+
+	/** Reads ordinary one-entry lines and packed tab-separated key/value pairs.
+	 *  A few shared NVDA dictionaries contain two entries on one physical line;
+	 *  treating the second pair as part of the first pronunciation silently
+	 *  discards both. */
+	private fun forEachEntry(file: File, action: (Pair<String, String>) -> Unit) {
+		forEachLineSafe(file) { line ->
+			val fields = line.split('\t')
+			if (fields.size > 2 && fields.size % 2 == 0) {
+				var i = 0
+				while (i + 1 < fields.size) {
+					splitEntry(fields[i] + "\t" + fields[i + 1])?.let(action)
+					i += 2
+				}
+			} else {
+				splitEntry(line)?.let(action)
+			}
+		}
 	}
 
 	private fun forEachLineSafe(file: File, action: (String) -> Unit) {
@@ -189,16 +230,7 @@ object Dictionaries {
 
 	/** How many usable entries a file offers, for saying so on the settings
 	 *  screen without an engine to hand. */
-	fun count(file: File): Int = try {
-		var n = 0
-		forEachLineSafe(file) { line ->
-			val entry = splitEntry(line) ?: return@forEachLineSafe
-			if (isUsable(entry.first, entry.second)) n++
-		}
-		n
-	} catch (unreadable: Exception) {
-		0
-	}
+	fun count(file: File): Int = parse(file).size
 
 	private const val TAG = "evvdroid"
 

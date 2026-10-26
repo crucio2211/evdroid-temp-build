@@ -59,6 +59,8 @@
 	<string name="dictionary_remove">Remove dictionaries</string>
 	<string name="use_dictionary">Use %1$s</string>
 	<string name="dictionary_language_title">Which language is this dictionary for?</string>
+	<string name="dictionary_importing">Importing dictionary</string>
+	<string name="dictionary_importing_message">Please wait while the dictionary is copied and read.</string>
 
 	<string name="regex_dictionary_label">Regex dictionary</string>
 	<string name="regex_dictionary_use_label">Use regex dictionary</string>

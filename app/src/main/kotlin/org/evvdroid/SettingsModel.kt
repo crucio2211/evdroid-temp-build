@@ -6,6 +6,14 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 
+private data class ImportedDictionary(
+	val slot: Int,
+	val name: String,
+	val language: Int,
+	val binary: Boolean,
+	val entries: Int
+)
+
 /**
  * What the settings screen is showing, and the engine it can hear itself on.
  *
@@ -18,6 +26,13 @@ class SettingsModel(context: Context) {
 
 	private val app = context.applicationContext
 	private val settings = Settings(app)
+	private val dictionaryIo = java.util.concurrent.Executors.newSingleThreadExecutor { task ->
+		Thread(task, "evvdroid-dictionary-import").apply { isDaemon = true }
+	}
+	private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+	var dictionaryImporting by mutableStateOf(false)
+		private set
 
 	private var preview: EvvPreview? = null
 	private var previewLang: Int? = null
@@ -219,38 +234,53 @@ class SettingsModel(context: Context) {
 	 * is a copy of our own rather than a reference to somebody else's.
 	 */
 	fun chooseDictionary(volume: Int, uri: android.net.Uri) {
-		val into = java.io.File(app.filesDir, "dictionaries").apply { mkdirs() }
-		val pending = java.io.File(into, "pending.dic")
-		val name = nameOf(uri) ?: pending.name
-		try {
-			app.contentResolver.openInputStream(uri).use { source ->
-				if (source == null) return
-				pending.outputStream().use { sink -> source.copyTo(sink) }
+		// Keep large phoneme files off the UI thread. In particular, counting
+		// and copying a 60k-entry file while TalkBack is active used to stall the
+		// settings process before the language choice even appeared.
+		runCatching {
+			app.contentResolver.takePersistableUriPermission(
+				uri,
+				android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+			)
+		}
+		dictionaryImporting = true
+		dictionaryIo.execute {
+			val result = runCatching {
+				val into = java.io.File(app.filesDir, "dictionaries").apply { mkdirs() }
+				val pending = java.io.File(into, "pending.dic")
+				val name = nameOf(uri) ?: pending.name
+				val source = app.contentResolver.openInputStream(uri)
+					?: throw java.io.IOException("the selected dictionary could not be opened")
+				Dictionaries.invalidate(pending)
+				source.use { input -> pending.outputStream().use { output -> input.copyTo(output) } }
+				val binary = Dictionaries.isBinary(pending)
+				val routed = Dictionaries.volumeForFile(name) ?: volume
+				val entries = if (binary) -1 else Dictionaries.count(pending)
+				val language = Dictionaries.engineForFile(name, EvvEngine.available)
+					?: EvvEngine.available.firstOrNull() ?: 0x00010000
+				ImportedDictionary(routed, name, language, binary, entries)
 			}
-		} catch (unreadable: Exception) {
-			android.util.Log.e("evvdroid", "cannot read the dictionary picked", unreadable)
-			pending.delete()
-			return
+			mainHandler.post {
+				dictionaryImporting = false
+				val imported = result.getOrElse {
+					android.util.Log.e("evvdroid", "cannot read the dictionary picked", it)
+					java.io.File(app.filesDir, "dictionaries/pending.dic").delete()
+					return@post
+				}
+				val pending = java.io.File(app.filesDir, "dictionaries/pending.dic")
+				if (!imported.binary && imported.entries == 0) {
+					pending.delete()
+					dictionaries = dictionaries - imported.slot
+					settings.setDictionary(imported.slot, null, null)
+					return@post
+				}
+				pendingDictSlot = imported.slot
+				pendingDictName = imported.name
+				pendingDictLang = imported.language
+				pendingDictBinary = imported.binary
+				pendingDictEntries = imported.entries
+			}
 		}
-		// A shared name says which volume it is: an enuabbr picked on the
-		// main row still goes to abbreviations. A binary file is the engine's
-		// own saved form: it is kept and the engine's loader reads it, and its
-		// bytes are never taught as words.
-		val binary = Dictionaries.isBinary(pending)
-		val routed = Dictionaries.volumeForFile(name) ?: volume
-		val entries = if (binary) -1 else Dictionaries.count(pending)
-		if (!binary && entries == 0) {
-			pending.delete()
-			dictionaries = dictionaries - routed
-			settings.setDictionary(routed, null, null)
-			return
-		}
-		// The language is asked, not assumed: the guess from the filename
-		// starts selected, and the choice is stored with the file.
-		pendingDictSlot = routed
-		pendingDictName = name
-		pendingDictLang = Dictionaries.engineForFile(name, EvvEngine.available)
-			?: EvvEngine.available.firstOrNull() ?: 0x00010000
 	}
 
 	/** A file waiting for its language: the slot it will fill, the name
@@ -260,34 +290,46 @@ class SettingsModel(context: Context) {
 	var pendingDictName: String by mutableStateOf("")
 		private set
 	var pendingDictLang: Int by mutableStateOf(0x00010000)
+	private var pendingDictBinary = false
+	private var pendingDictEntries = 0
 
 	/** The engines a picked file can go to, in their own order. */
 	val dictLanguages: List<Int> get() = EvvEngine.available.toList()
 
 	fun choosePendingDictionaryLanguage(language: Int) {
 		val slot = pendingDictSlot ?: return
-		pendingDictLang = language
+		val name = pendingDictName
+		val binary = pendingDictBinary
+		val entries = pendingDictEntries
 		val into = java.io.File(app.filesDir, "dictionaries")
 		val pending = java.io.File(into, "pending.dic")
-		if (!pending.exists()) {
-			pendingDictSlot = null
-			return
-		}
-		val binary = Dictionaries.isBinary(pending)
-		val entries = if (binary) 0 else Dictionaries.count(pending)
 		val file = java.io.File(into, "volume-$slot.dic")
-		pending.copyTo(file, overwrite = true)
-		pending.delete()
-		val said = if (binary) {
-			app.getString(R.string.dictionary_binary, pendingDictName)
-		} else {
-			app.getString(R.string.dictionary_entries, pendingDictName, entries)
+		dictionaryImporting = true
+		dictionaryIo.execute {
+			val result = runCatching {
+				if (!pending.exists()) throw java.io.IOException("the pending dictionary is missing")
+				pending.copyTo(file, overwrite = true)
+				pending.delete()
+				Dictionaries.invalidate(file)
+				if (!binary) Dictionaries.parse(file)
+			}
+			mainHandler.post {
+				dictionaryImporting = false
+				result.onFailure {
+					android.util.Log.e("evvdroid", "cannot save the imported dictionary", it)
+					return@post
+				}
+				val said = if (binary) app.getString(R.string.dictionary_binary, name)
+				else app.getString(R.string.dictionary_entries, name, entries)
+				settings.setDictionary(slot, file.absolutePath, said)
+				settings.setDictionaryLanguage(slot, language)
+				dictionaries = dictionaries + (slot to said)
+				chooseUseDictionary(slot, true)
+				pendingDictSlot = null
+				pendingDictBinary = false
+				pendingDictEntries = 0
+			}
 		}
-		settings.setDictionary(slot, file.absolutePath, said)
-		settings.setDictionaryLanguage(slot, language)
-		dictionaries = dictionaries + (slot to said)
-		chooseUseDictionary(slot, true)
-		pendingDictSlot = null
 	}
 
 	fun dismissPendingDictionary() {
@@ -297,7 +339,11 @@ class SettingsModel(context: Context) {
 
 	fun removeDictionaries() {
 		for (volume in Eci.DICT_VOLUMES) {
-			settings.dictionaryPath(volume)?.let { java.io.File(it).delete() }
+			settings.dictionaryPath(volume)?.let {
+				val file = java.io.File(it)
+				file.delete()
+				Dictionaries.invalidate(file)
+			}
 			settings.setDictionary(volume, null, null)
 		}
 		dictionaries = emptyMap()

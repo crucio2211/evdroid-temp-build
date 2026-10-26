@@ -94,7 +94,7 @@ typedef struct {
 } Forced;
 
 static const Forced forced[] = {
-    { "produce",  "`[.prx.dyus]" },
+    { "produce",  "`[.prx.dus]" },
     { "persona",  "`[.0pR.1so.0nx]" },
     { "personas", "`[.0pR.1so.0nxz]" },
 };
