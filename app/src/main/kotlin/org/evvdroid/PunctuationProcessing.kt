@@ -8,8 +8,8 @@ package org.evvdroid
  * the synthesiser keep it company as a brief pause instead of as
  * themselves, because this engine spells an isolated mark aloud and every
  * kept one came out twice. A mark below its level stays for the engine's
- * default, and sentence-ending .!? stays prosody below all. Dots and
- * commas between digits are numeric context and pass untouched.
+ * default, and sentence-ending !? stays prosody below all. Periods are spoken
+ * as "dot" at Some or above; decimal points between digits pass untouched.
  *
  * Glued marks get no special treatment: don't becomes don apostrophe t at
  * all, exactly as on SAPI5, whose engine takes it in stride.
@@ -41,13 +41,6 @@ object PunctuationProcessing {
 					if (entry.level <= level) rep = entry.word
 				}
 			}
-			// Period is always handed to the engine as the character itself.
-			// Never expand it to the spoken name "dot" (file.mp3, example.com,
-			// version numbers, etc. were being read as "dot mp3" / "dot com").
-			if (cp == '.'.code) {
-				rep = null
-				pres = PunctSymbols.PASS
-			}
 			// Numeric context: . or , between ASCII digits passes as-is.
 			if ((cp == '.'.code || cp == ','.code) && i > 0 && i + adv < text.length &&
 				text[i - 1] in '0'..'9' && text[i + adv] in '0'..'9'
@@ -55,10 +48,18 @@ object PunctuationProcessing {
 				rep = null
 				pres = PunctSymbols.PASS
 			}
+			// Speak periods as the lowercase word "dot" when punctuation is
+			// enabled at Some or above. Decimal points remain numeric punctuation.
+			if (cp == '.'.code && level >= SOME && rep != null &&
+				!(i > 0 && i + adv < text.length && text[i - 1] in '0'..'9' && text[i + adv] in '0'..'9')
+			) {
+				rep = "dot"
+				pres = PunctSymbols.PASS
+			}
 			// Sentence boundary .!? : below all it is prosody, not speech.
 			if (isSentenceMark(cp) && isSentenceEnding(text, i, text.length)) {
-				if (level < ALL) rep = null
-				pres = PunctSymbols.ALWAYS
+				if (level < ALL && !(cp == '.'.code && level >= SOME && rep != null)) rep = null
+				if (!(cp == '.'.code && level >= SOME && rep != null)) pres = PunctSymbols.ALWAYS
 			}
 			if (rep != null) {
 				pad(out)

@@ -370,32 +370,6 @@ class EvvTtsService : TextToSpeechService() {
 	private fun isPhonemeSay(say: String): Boolean =
 		say.indexOf('`') >= 0 || (say.startsWith("[") && say.endsWith("]"))
 
-	/** Keeps apostrophes on a matched dictionary word intact until the
-	 *  dictionaries have taught or rewritten it. */
-	private fun protectDictionaryApostrophes(target: EvvEngine, text: String): String =
-		WORD.replace(text) { match ->
-			val word = match.value
-			if (word.any { it == '\'' || it == '\u2019' } && hasDictionaryEntry(target, word)) {
-				word.replace('\'', DICT_APOSTROPHE).replace('\u2019', DICT_CURLY_APOSTROPHE)
-			} else {
-				word
-			}
-		}
-	private fun hasDictionaryEntry(target: EvvEngine, word: String): Boolean {
-		if (lookupEntries(target.language, word).isNotEmpty()) return true
-		if (lookupRootEntries(target, target.language, word).isNotEmpty()) return true
-		for ((volume, path) in loadedDictionaries) {
-			if ((loadedDictionaryLangs[volume] ?: target.language) != target.language) continue
-			val file = java.io.File(path)
-			if (!file.exists() || !Dictionaries.isBinary(file)) continue
-			if (binaryDictionarySay(target, volume, word) != null) return true
-			if (volume == Eci.DICT_ROOT && rootApostropheStems(word).any {
-					binaryDictionarySay(target, volume, it) != null
-				}
-			) return true
-		}
-		return false
-	}
 	private fun binaryDictionarySay(target: EvvEngine, volume: Int, word: String): String? {
 		val forms = LinkedHashSet<String>()
 		for (form in apostropheVariants(word)) {
@@ -429,9 +403,6 @@ class EvvTtsService : TextToSpeechService() {
 		word.replace('\u2019', '\''),
 		word.replace('\'', '\u2019')
 	)
-	private fun restoreDictionaryApostrophes(text: String): String =
-		text.replace(DICT_APOSTROPHE, '\'').replace(DICT_CURLY_APOSTROPHE, '\u2019')
-
 	/** Match dictionary keys with Eloquence's case-sensitive rule. A sentence
 	 *  initial capital may use a lowercase key, as the on-demand teacher installs
 	 *  that form; an uppercase key such as `NA` must not rewrite lowercase `na`.
@@ -598,9 +569,8 @@ class EvvTtsService : TextToSpeechService() {
 		val audio = s?.audioSnapshot() ?: AudioOutput.Snapshot()
 		for ((ri, rawPiece) in rawPieces.withIndex()) {
 			if (stopped) break
-			val protectedPiece = protectDictionaryApostrophes(target, rawPiece)
 			val fixed = TextPipeline.process(
-				protectedPiece,
+				rawPiece,
 				emoji = s?.speakEmoji != false,
 				emojiCompress = s?.emojiCompress ?: EmojiProcessing.DEFAULT_COMPRESS,
 				numberMode = numberMode,
@@ -610,8 +580,7 @@ class EvvTtsService : TextToSpeechService() {
 			)
 			// The user's own rewrites go last, closest to the engine, so what is
 			// written in the regex dictionary is what gets said.
-			val restored = restoreDictionaryApostrophes(fixed)
-			val afterRegex = if (regexEnabled) RegexDictionaries.apply(loadedRegex, restored) else restored
+			val afterRegex = if (regexEnabled) RegexDictionaries.apply(loadedRegex, fixed) else fixed
 			// Words the dictionaries know are taught now, ahead of the engine
 			// meeting them below.
 			teachUnknownWords(target, afterRegex)
@@ -677,42 +646,12 @@ class EvvTtsService : TextToSpeechService() {
 				return false
 			}
 			pace.handed(n)
-			hold(pace)
 		}
 		return true
 	}
 
 	private fun remember(pace: Pace) {
 		if (pace.handedMs() > mostAudioHandedMs) mostAudioHandedMs = pace.handedMs()
-	}
-
-	/**
-	 * Waits until the audio already handed over has nearly caught up.
-	 *
-	 * This engine is far faster than the speech it makes -- a second and a
-	 * third of audio comes out in twelve milliseconds -- and Android takes
-	 * every byte of it without complaint and queues it. So a reader swiping
-	 * quickly has five or six items synthesised and queued while the first is
-	 * still being spoken, and when it then asks for silence the whole queue
-	 * goes, which is items that were never heard at all. Running no further
-	 * ahead than [LEAD_MS] keeps at most one utterance in flight, so silence
-	 * arrives where the reader actually is.
-	 *
-	 * The wait is in slices so that a stop is noticed at once rather than at
-	 * the end of it. The slices are short on purpose: every slice is the
-	 * longest a stop can wait unnoticed while audio is being paced.
-	 */
-	private fun hold(pace: Pace) {
-		while (!stopped) {
-			val ahead = pace.ahead() - LEAD_MS
-			if (ahead <= 0) return
-			try {
-				Thread.sleep(minOf(ahead, SLICE_MS))
-			} catch (stopping: InterruptedException) {
-				Thread.currentThread().interrupt()
-				return
-			}
-		}
 	}
 
 	/** Tells the framework an utterance has begun, once, and not before there
@@ -732,7 +671,6 @@ class EvvTtsService : TextToSpeechService() {
 	/** How far the audio handed over has run ahead of the time it takes to
 	 *  play it. */
 	private class Pace(private val bytesPerSecond: Int) {
-		private val from = System.nanoTime()
 		private var bytes = 0L
 
 		fun handed(more: Int) {
@@ -741,7 +679,6 @@ class EvvTtsService : TextToSpeechService() {
 
 		fun handedMs(): Long = if (bytesPerSecond <= 0) 0 else bytes * 1000L / bytesPerSecond
 
-		fun ahead(): Long = handedMs() - (System.nanoTime() - from) / 1_000_000L
 	}
 
 	internal companion object {
@@ -755,17 +692,11 @@ class EvvTtsService : TextToSpeechService() {
 		var mostAudioHandedMs: Long = 0
 
 		const val TAG = "evvdroid"
-		const val DICT_APOSTROPHE = '\uE000'
-		const val DICT_CURLY_APOSTROPHE = '\uE001'
 		const val MIN_CHUNK = 1024
 		/** Small commits for a screen reader: what is handed over plays,
 		 *  so a stop waits out at most this much, and speech starts in
 		 *  slivers rather than after whole mouthfuls. */
 		const val MAX_CHUNK = 4096
 		const val BYTES_PER_SAMPLE = 2
-		/** How much audio may sit ahead of the speech, so that the track never
-		 *  runs dry while the engine is held back. */
-		const val LEAD_MS = 100L
-		const val SLICE_MS = 20L
 	}
 }

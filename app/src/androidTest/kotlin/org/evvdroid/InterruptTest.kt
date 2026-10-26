@@ -97,7 +97,8 @@ class InterruptTest {
 	}
 
 	/**
-	 * The engine must not run ahead of the speech.
+	 * Without artificial audio lead pacing, the native engine should produce
+	 * more audio than real-time playback before this utterance is flushed.
 	 *
 	 * This is the one the ear noticed and the framework cannot see. Handing
 	 * every byte over at once looks perfectly correct from outside -- the
@@ -106,11 +107,11 @@ class InterruptTest {
 	 * hearing the sixth, with everything between it never spoken at all,
 	 * because asking for silence throws the queue away.
 	 *
-	 * A paragraph is half a minute of speech and this engine makes it in about
-	 * a second, so unpaced it hands over the lot before the first word is out.
+	 * This keeps the service behavior aligned with Code Factory's unpaced
+	 * callback flow.
 	 */
 	@Test
-	fun synthesisDoesNotRunAheadOfTheSpeech() {
+	fun synthesisHasNoArtificialAudioLead() {
 		EvvTtsService.mostAudioHandedMs = 0
 		val report = Report()
 		val tts = connect()
@@ -122,12 +123,11 @@ class InterruptTest {
 			waitFor { report.cut.contains("long") }
 			val handed = EvvTtsService.mostAudioHandedMs
 			assertTrue("the paragraph was never cut off", report.cut.contains("long"))
-			// Unpaced this is about 2,200ms, which is what the framework's own
-			// queue allows before it pushes back; paced it is the speaking time
-			// and the lead.
+			// This engine can produce several seconds of speech in well under
+			// the 700ms playback window when no lead wait is inserted.
 			assertTrue(
-				"${handed}ms of audio was handed over in ${SPEAKING_MS}ms of speaking",
-				handed < AHEAD_LIMIT_MS
+				"only ${handed}ms of audio was handed over in ${SPEAKING_MS}ms of speaking",
+				handed > AHEAD_LIMIT_MS
 			)
 		} finally {
 			tts.shutdown()
