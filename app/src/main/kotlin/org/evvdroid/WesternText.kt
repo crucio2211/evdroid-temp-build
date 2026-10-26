@@ -52,7 +52,8 @@ object WesternText {
 		val out = ByteArray(flat.length)
 		for (n in flat.indices) {
 			val c = flat[n].code
-			out[n] = if (c in 1..HIGHEST) c.toByte() else ' '.code.toByte()
+			out[n] = WINDOWS_1252_BYTES[flat[n]]?.toByte()
+				?: if (c in 1..HIGHEST) c.toByte() else ' '.code.toByte()
 		}
 		return out
 	}
@@ -74,6 +75,7 @@ object WesternText {
 			when {
 				own(c) -> flat.append(c)
 				plain != null -> flat.append(plain)
+				WINDOWS_1252_BYTES.containsKey(c) -> flat.append(c)
 				c.code == 0 -> flat.append(' ')
 				c.code <= HIGHEST -> flat.append(c)
 				else -> flat.append(fallback(text, i))
@@ -111,6 +113,16 @@ object WesternText {
 
 	private val SHIFT_JIS: java.nio.charset.Charset =
 		java.nio.charset.Charset.forName("Shift_JIS")
+
+	/** Unicode characters represented in Windows' Western byte set's C1 area. */
+	private val WINDOWS_1252_BYTES = mapOf(
+		'€' to 0x80, '‚' to 0x82, 'ƒ' to 0x83, '„' to 0x84, '…' to 0x85,
+		'†' to 0x86, '‡' to 0x87, 'ˆ' to 0x88, '‰' to 0x89, 'Š' to 0x8A,
+		'‹' to 0x8B, 'Œ' to 0x8C, 'Ž' to 0x8E, '‘' to 0x91, '’' to 0x92,
+		'“' to 0x93, '”' to 0x94, '•' to 0x95, '–' to 0x96, '—' to 0x97,
+		'˜' to 0x98, '™' to 0x99, 'š' to 0x9A, '›' to 0x9B, 'œ' to 0x9C,
+		'ž' to 0x9E, 'Ÿ' to 0x9F
+	)
 
 	/**
 	 * What to say for a character the code set has no room for. An accent that

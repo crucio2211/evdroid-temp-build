@@ -21,8 +21,8 @@ import java.io.File
  * A line is a key, a tab, and what to say instead. What to say is either a
  * respelling ("dee oe jeigh") or a pronunciation in the engine's own alphabet
  * ("`[Ekspoz1e]"), and the engine takes both. The bytes are the engine's own
- * code set already -- an e-acute is one byte -- so the file is read as Latin-1
- * rather than as UTF-8, which is what the files in the wild actually are.
+ * code set already -- an e-acute is one byte -- so the file is read as
+ * Windows-1252 when it is not UTF-8, which shared files commonly use.
  *
  * That is the Western byte set, so a file for Polish or Japanese is not read
  * right here. Neither has a dictionary anyone shares, and guessing at a form
@@ -61,10 +61,8 @@ object Dictionaries {
 	 *  and malformed lines. Anything else is skipped and counted refused
 	 *  rather than handed to the engine.
 	 *
-	 *  Only the C0 controls and DEL count. The file is read as Latin-1 and the
-	 *  engine's code set is the Windows Western one, where 0x80 to 0x9F are
-	 *  letters and marks (a curly apostrophe, a quote, oe, s caron) rather than
-	 *  controls, so an entry written with one is a good entry. */
+	 *  Only the C0 controls and DEL count. Windows-1252 maps the C1 byte range
+	 *  to letters and marks (curly apostrophe, oe, s caron) rather than controls. */
 	fun isUsable(key: String, say: String): Boolean {
 		if (key.isEmpty() || say.isEmpty()) return false
 		if (key.length > MAX_KEY || say.length > MAX_SAY) return false
@@ -184,12 +182,17 @@ object Dictionaries {
 		return rawKey to say
 	}
 
-	/** Reads ordinary one-entry lines and packed tab-separated key/value pairs.
-	 *  A few shared NVDA dictionaries contain two entries on one physical line;
-	 *  treating the second pair as part of the first pronunciation silently
-	 *  discards both. */
+	/** Reads ordinary one-entry lines, packed tab-separated pairs, and a malformed
+	 *  shared dictionary line where a phoneme's closing bracket and the next key
+	 *  were joined without a separator. */
 	private fun forEachEntry(file: File, action: (Pair<String, String>) -> Unit) {
 		forEachLineSafe(file) { line ->
+			val glued = GLUED_PHONEME_PAIR.matchEntire(line)
+			if (glued != null) {
+				action(glued.groupValues[1] to glued.groupValues[2])
+				action(glued.groupValues[3] to glued.groupValues[4])
+				return@forEachLineSafe
+			}
 			val fields = line.split('\t')
 			if (fields.size > 2 && fields.size % 2 == 0) {
 				var i = 0
@@ -205,7 +208,7 @@ object Dictionaries {
 
 	private fun forEachLineSafe(file: File, action: (String) -> Unit) {
 		val bytes = file.readBytes()
-		val charset = if (isUtf8(bytes)) Charsets.UTF_8 else Charsets.ISO_8859_1
+		val charset = if (isUtf8(bytes)) Charsets.UTF_8 else java.nio.charset.Charset.forName("windows-1252")
 		var text = String(bytes, charset)
 		if (text.startsWith('\uFEFF')) {
 			text = text.substring(1)
@@ -236,6 +239,9 @@ object Dictionaries {
 
 	private const val MAX_KEY = 128
 	private const val MAX_SAY = 512
+	private val GLUED_PHONEME_PAIR = Regex(
+		"""^([^\t]+)\t(`?\[[^\]]+\])([\p{L}\p{N}][^\t]*)\t(.+)$"""
+	)
 
 	/** A shared name like enumain.dic or esmabbr.dic: a three-letter IBM
 	 *  language tag, then which volume it is. */

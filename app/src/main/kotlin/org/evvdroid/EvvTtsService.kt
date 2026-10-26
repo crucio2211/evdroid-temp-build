@@ -43,13 +43,10 @@ class EvvTtsService : TextToSpeechService() {
 	private var wordMaps: Map<Int, Map<String, List<DictEntry>>> = emptyMap()
 	private val taughtWords = java.util.concurrent.ConcurrentHashMap.newKeySet<Pair<Int, String>>()
 
-	/** Words as the engine meets them: letters and digits carrying their
-	 *  apostrophes and hyphens, so billets-doux looks up whole. */
-	/** Words as the teaching pass sees them. The high half holds the
-	 *  accented letters (everything but the multiply and divide signs),
-	 *  so a key like ni\u00F1a is taught rather than walked past: the old
-	 *  ASCII-only set silently skipped every imported entry above 127. */
-	private val WORD = Regex("""[A-Za-z0-9À-ÖØ-öø-ÿ]+(?:['’-][A-Za-z0-9À-ÖØ-öø-ÿ]+)*""")
+	/** Dictionary tokens can include Unicode letters and marks, apostrophes,
+	 *  hyphens, and the punctuation found inside legitimate keys such as P!nk.
+	 *  This keeps Windows-1252 names and other non-ASCII entries matchable. */
+	private val WORD = Regex("""\+?[\p{L}\p{M}\p{N}\u0080-\u009F]+(?:['’-][\p{L}\p{M}\p{N}\u0080-\u009F]+|![\p{L}\p{M}\p{N}\u0080-\u009F]+)*""")
 
 	private var loadedRegex: RegexDictionaries.Loaded? = null
 	private var regexEnabled = false
