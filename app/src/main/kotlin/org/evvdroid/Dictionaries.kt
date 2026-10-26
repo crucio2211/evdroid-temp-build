@@ -35,14 +35,12 @@ object Dictionaries {
 		val entries: Map<String, Pair<String, String>>
 	)
 	private val parseCache = java.util.concurrent.ConcurrentHashMap<String, ParsedCache>()
-	private val apostropheCache = java.util.concurrent.ConcurrentHashMap<String, ParsedCache>()
 	private val preparedFiles = java.util.concurrent.ConcurrentHashMap<String, File>()
 	private val prepareLock = Any()
 
 	/** Invalidates a parsed copy when an imported file is replaced in place. */
 	fun invalidate(file: File) {
 		parseCache.remove(file.absolutePath)
-		apostropheCache.remove(file.absolutePath)
 		val prefix = file.absolutePath + "|"
 		for (key in preparedFiles.keys) if (key.startsWith(prefix)) preparedFiles.remove(key)
 	}
@@ -159,33 +157,6 @@ object Dictionaries {
 		val parsed = out.toMap()
 		parseCache[path] = ParsedCache(file.length(), file.lastModified(), parsed)
 		return parsed
-	}
-
-	/** The small text-dictionary subset needed for apostrophe rewriting. All
-	 *  ordinary entries go straight to the native dictionary and do not need a
-	 *  duplicate 65k-entry Kotlin map. */
-	fun apostropheEntries(file: File): Map<String, Pair<String, String>> {
-		val path = file.absolutePath
-		val length = file.length()
-		val modified = file.lastModified()
-		synchronized(apostropheCache) {
-			apostropheCache[path]?.takeIf { it.length == length && it.modified == modified }?.let {
-				return it.entries
-			}
-			val out = LinkedHashMap<String, Pair<String, String>>()
-			try {
-				forEachEntry(file) { entry ->
-					if (isUsable(entry.first, entry.second) && entry.first.any { it == '\'' || it == '\u2019' }) {
-						out[entry.first] = entry
-					}
-				}
-			} catch (unreadable: Exception) {
-				Log.e(TAG, "cannot read ${file.name}", unreadable)
-			}
-			val parsed = out.toMap()
-			apostropheCache[path] = ParsedCache(file.length(), file.lastModified(), parsed)
-			return parsed
-		}
 	}
 
 	/** Writes a normalized, engine-encoded copy for eciLoadDict. Imported files
