@@ -217,6 +217,7 @@ class EvvTtsService : TextToSpeechService() {
 	/** Called only by [engineExecutor], so changing language cannot race another
 	 *  engine construction. Dictionary files are attached before the task ends. */
 	private fun openEngine(language: Int): EvvEngine? = synchronized(engineStateLock) {
+		val started = System.nanoTime()
 		val held = engine
 		if (held != null && held.language == language) return@synchronized held
 
@@ -233,6 +234,7 @@ class EvvTtsService : TextToSpeechService() {
 		engine = made
 		try {
 			applySettings(made)
+			Log.i(TAG, "engine 0x%08x ready in %d ms".format(language, (System.nanoTime() - started) / 1_000_000L))
 			made
 		} catch (failed: Exception) {
 			made.close()
@@ -294,28 +296,25 @@ class EvvTtsService : TextToSpeechService() {
 
 	/** Binary dictionaries use the engine's saved form. Text dictionaries are
 	 *  normalized and encoded during import/cache warmup, then indexed natively
-	 *  in one call. Text root entries go to both native MAIN and ROOT volumes
-	 *  to preserve native precedence and root handling. */
+	 *  once in their selected volume, matching Code Factory's per-volume loading. */
 	private fun loadEngineDictionaries(target: EvvEngine, want: Map<Int, String>, langs: Map<Int, Int>) {
 		for ((volume, path) in want) {
 			if ((langs[volume] ?: target.language) != target.language) continue
+			val started = System.nanoTime()
 			try {
 				val file = java.io.File(path)
 				if (!file.exists()) continue
 				if (Dictionaries.isBinary(file)) {
 					val ok = Dictionaries.loadBinary(target, volume, file)
-					Log.i(TAG, "volume $volume: ${file.name} ${if (ok) "loaded by the engine" else "refused by the engine"}")
+					Log.i(TAG, "volume $volume: ${file.name} ${if (ok) "loaded by the engine" else "refused by the engine"} in ${(System.nanoTime() - started) / 1_000_000L} ms")
 					continue
 				}
 				val ready = Dictionaries.prepareForEngine(file, target.language)
-				val destinations = if (volume == Eci.DICT_ROOT) listOf(Eci.DICT_MAIN, Eci.DICT_ROOT) else listOf(volume)
-				for (destination in destinations) {
-					val result = target.loadDictionary(destination, ready.absolutePath)
-					if (result != 0) Log.e(TAG, "volume $destination refused ${file.name}: $result")
-				}
-				Log.i(TAG, "volume $volume: text dictionary indexed natively from ${file.name}")
+				val result = target.loadDictionary(volume, ready.absolutePath)
+				if (result != 0) Log.e(TAG, "volume $volume refused ${file.name}: $result")
+				Log.i(TAG, "volume $volume: ${file.name} indexed natively in ${(System.nanoTime() - started) / 1_000_000L} ms")
 			} catch (failed: Exception) {
-				Log.e(TAG, "volume $volume not loaded by the engine", failed)
+				Log.e(TAG, "volume $volume not loaded by the engine after ${(System.nanoTime() - started) / 1_000_000L} ms", failed)
 			}
 		}
 	}
