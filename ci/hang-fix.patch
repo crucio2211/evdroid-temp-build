@@ -1,0 +1,160 @@
+--- a/app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
++++ b/app/src/main/kotlin/org/evvdroid/EvvTtsService.kt
+@@ -54,6 +54,23 @@
+ 		// would otherwise land on the first utterance. Warm it here, off
+ 		// every thread that speaks.
+ 		Thread({ EmojiNames.STARTERS.size }, "emoji-warmup").start()
++		// Preload the engine + external dictionaries off the synthesis path.
++		// With three large phoneme files, indexing on the first speak was what
++		// hung TalkBack until force-stop after a screen-reader restart.
++		val warm = settings
++		if (warm != null) {
++			val primary = warm.forcedLanguage.takeIf { EvvEngine.available.contains(it) }
++				?: EvvEngine.available.firstOrNull()
++			if (primary != null) {
++				engineExecutor.execute {
++					try {
++						openEngine(primary)
++					} catch (failed: Exception) {
++						Log.e(TAG, "dictionary warmup failed for 0x%08x".format(primary), failed)
++					}
++				}
++			}
++		}
+ 	}
+ 
+ 	override fun onDestroy() {
+@@ -200,7 +217,12 @@
+ 
+ 	private fun ensureEngine(language: Int): EvvEngine? {
+ 		return try {
+-			requestEngine(language).get()
++			// Bound the wait so a stuck native dictionary index cannot freeze
++			// TalkBack forever after restart or a language switch.
++			requestEngine(language).get(ENGINE_LOAD_TIMEOUT_SEC, java.util.concurrent.TimeUnit.SECONDS)
++		} catch (timeout: java.util.concurrent.TimeoutException) {
++			Log.e(TAG, "engine setup timed out for 0x%08x after ${ENGINE_LOAD_TIMEOUT_SEC}s".format(language))
++			null
+ 		} catch (interrupted: InterruptedException) {
+ 			Thread.currentThread().interrupt()
+ 			null
+@@ -211,42 +233,59 @@
+ 	}
+ 
+ 	/** Called only by [engineExecutor], so changing language cannot race another
+-	 *  engine construction. Dictionary files are attached before the task ends. */
+-	private fun openEngine(language: Int): EvvEngine? = synchronized(engineStateLock) {
++	 *  engine construction. Dictionary indexing deliberately runs *outside*
++	 *  [engineStateLock]: holding that lock for three large phoneme files was
++	 *  what hung TalkBack on restart and on US\u2194UK switches until force-stop. */
++	private fun openEngine(language: Int): EvvEngine? {
+ 		val started = System.nanoTime()
+-		engine?.takeIf { it.language == language }?.let { return@synchronized it }
+-
+-		val cached = enginesByLanguage[language]
+-		if (cached != null) {
+-			engine = cached
++		val cached = synchronized(engineStateLock) {
++			engine?.takeIf { it.language == language }
++				?: enginesByLanguage[language]
++		}
++		if (cached != null) {
++			// Settings/dict refresh outside the state lock so other languages
++			// can keep speaking while this one reloads.
+ 			val saved = settings
+-			if (saved != null && appliedRevisions[cached] != saved.revision) applySettings(cached)
++			if (saved != null && appliedRevisions[cached] != saved.revision) {
++				applySettings(cached)
++			}
++			synchronized(engineStateLock) { engine = cached }
+ 			Log.i(TAG, "engine 0x%08x reused with its native dictionaries".format(language))
+-			return@synchronized cached
++			return cached
+ 		}
+ 
+-		val made = EvvEngine.open(language) ?: return@synchronized null
+-		engine = made
+-		enginesByLanguage[language] = made
++		val made = EvvEngine.open(language) ?: return null
+ 		try {
++			// Heavy: normalize + native index of every external dictionary volume.
+ 			applySettings(made)
+-			Log.i(TAG, "engine 0x%08x ready in %d ms".format(language, (System.nanoTime() - started) / 1_000_000L))
++		} catch (failed: Exception) {
++			made.close()
++			throw failed
++		}
++
++		synchronized(engineStateLock) {
++			// Another worker may have published the same language; prefer theirs.
++			enginesByLanguage[language]?.let { existing ->
++				if (existing !== made) {
++					made.close()
++					engine = existing
++					Log.i(TAG, "engine 0x%08x already published; using the resident instance".format(language))
++					return existing
++				}
++			}
++			enginesByLanguage[language] = made
++			engine = made
+ 			while (enginesByLanguage.size > MAX_CACHED_ENGINES) {
+ 				val eldest = enginesByLanguage.entries.iterator().next()
++				if (eldest.value === made || eldest.value === engine) break
+ 				enginesByLanguage.remove(eldest.key)
+ 				appliedRevisions.remove(eldest.value)
+ 				loadedDictionaries.remove(eldest.value)
+ 				eldest.value.close()
+ 			}
+-			made
+-		} catch (failed: Exception) {
+-			enginesByLanguage.remove(language)
+-			appliedRevisions.remove(made)
+-			loadedDictionaries.remove(made)
+-			made.close()
+-			engine = enginesByLanguage.values.lastOrNull()
+-			throw failed
+ 		}
++		Log.i(TAG, "engine 0x%08x ready in %d ms".format(language, (System.nanoTime() - started) / 1_000_000L))
++		return made
+ 	}
+ 
+ 	private fun applySettings(target: EvvEngine) {
+@@ -363,6 +402,15 @@
+ 			if (target == null) {
+ 				callback.error(TextToSpeech.ERROR_SERVICE)
+ 				return
+ 			}
++			// Refresh dictionaries *before* taking engineStateLock so a multi-
++			// file reload cannot block other languages' synthesis.
++			if (s != null && appliedRevisions[target] != s.revision) {
++				try {
++					applySettings(target)
++				} catch (failed: Exception) {
++					Log.e(TAG, "settings apply failed for 0x%08x".format(language), failed)
++				}
++			}
+ 			val spokeOnCurrentEngine = synchronized(engineStateLock) {
+ 				if (engine !== target) false else {
+ 					synthesizeWithEngine(target, request, callback, requestGeneration, s)
+@@ -382,8 +430,8 @@
+ 		// A completed utterance has already drained its output. Do not call
+ 		// eciStop before every speak: Code Factory only stops on Android's
+ 		// onStop path, and native eciStop can wait for an entire rule pass.
+ 		if (stopGeneration.get() != requestGeneration) return
+-				if (s != null && appliedRevisions[target] != s.revision) applySettings(target)
++		// Dictionary/settings refresh happens before engineStateLock is taken.
+ 		// Re-sent every time rather than once, because it is the one setting
+ 		// with no way of telling whether something else has moved it.
+ 		s?.let { target.setAbbreviations(it.abbreviations) }
+@@ -570,7 +618,10 @@
+ 
+ 		const val TAG = "evvdroid"
+ 		const val MIN_CHUNK = 1024
+-		const val MAX_CACHED_ENGINES = 2
++		/** Keep several languages warm so US\u2194UK switches do not re-index
++		 *  three external phoneme dictionaries on every hop. */
++		const val MAX_CACHED_ENGINES = 4
++		const val ENGINE_LOAD_TIMEOUT_SEC = 90L
+ 		/** Small commits for a screen reader: what is handed over plays,
+ 		 *  so stop has at most one short chunk already in the framework queue. */
+ 		const val MAX_CHUNK = 1024
