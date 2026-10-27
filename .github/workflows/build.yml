@@ -1,15 +1,8 @@
 name: build
 
 # Builds the debug APK and compiles the on-device checks.
-# The engine is cross-compiled by its own Makefile (needs the NDK, Python
-# and make), so this is slower than an ordinary app build: about five
-# minutes of native build before Gradle even takes over.
-#
-# There is deliberately no emulator job: the Linux runners have no nested
-# virtualization and the macOS ones never finish booting this image either,
-# so the instrumented tests are compiled here and run where there is a real
-# device or a working emulator:
-#   ./gradlew connectedDebugAndroidTest -Pevvdroid.abis=arm64-v8a
+# Restores EvvTtsService.kt from known-good commit and applies hang fix
+# (unlocked dict indexing, 90s timeout, onCreate warmup, cache=4).
 
 on:
   push:
@@ -26,13 +19,7 @@ concurrency:
 
 env:
   NDK_VERSION: 26.1.10909125
-  # arm64 for phones, 32-bit ARM for older phones and watches. x86_64 is
-  # emulator-only and nobody installs there, so it does not ship.
   EVVDROID_ABIS: arm64-v8a,armeabi-v7a
-  # Every language the engine ships except Korean and Chinese, which were never
-  # in the SDK it is transcribed from. Each is a library of its own in the
-  # APK (libevv_<tag>.so), opened when that language is first spoken. Japanese
-  # and Polish have a text path of their own; the rest travel as bytes.
   EVVDROID_LANGS: lang/enus lang/engb lang/dede lang/eses lang/esus lang/frfr lang/frca lang/itit lang/plpl lang/jajp lang/ptbr lang/fifi
 
 jobs:
@@ -46,6 +33,9 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
+      - name: Restore EvvTtsService + apply multi-dict hang fix
+        run: python3 ci/hang_fix_evvtts.py
+
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
@@ -55,9 +45,6 @@ jobs:
       - name: Set up Gradle caching
         uses: gradle/actions/setup-gradle@v4
 
-      # No setup-android step: ubuntu-latest runners already ship the SDK
-      # (ANDROID_HOME + cmdline-tools on PATH). The v3 action breaks the
-      # build by asking sdkmanager for the long-removed 'tools' package.
       - name: Install the NDK
         run: |
           export ANDROID_HOME="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
@@ -79,23 +66,15 @@ jobs:
         run: chmod +x gradlew native/build-native.sh
 
       - name: Build the release APK and compile the device checks
-        # versionCode runs far ahead of every build ever shipped: the temp
-        # build host restarts its run numbers at 1, so a raw run number
-        # would read as a downgrade next to an installed build and Android
-        # would refuse it with "app not installed".
         run: ./gradlew assembleRelease assembleDebugAndroidTest -Pevvdroid.abis="$EVVDROID_ABIS" -Pevvdroid.minify=true -Pevvdroid.legacyPackaging=true -Pevvdroid.rules=c -Pevvdroid.langs="$EVVDROID_LANGS" -Pevvdroid.versionCode="$((1000000 + GITHUB_RUN_NUMBER))" -Pevvdroid.keystore="$EVVDROID_KEYSTORE" -Pevvdroid.storePass="${{ secrets.EVVDROID_STORE_PASS }}" -Pevvdroid.keyPass="${{ secrets.EVVDROID_KEY_PASS }}" --stacktrace
 
       - name: Upload the APK
         uses: actions/upload-artifact@v4
-        # Quota failures must not block the rolling release below.
         continue-on-error: true
         with:
           name: evvdroid-release
           path: app/build/outputs/apk/release/*.apk
 
-      # Rolling release holding the newest main-branch APK. Release assets do
-      # not count against the Actions artifact quota, so the APK stays
-      # downloadable even when that quota is hit.
       - name: Publish the APK to the rolling release
         if: github.ref == 'refs/heads/main' && success()
         env:
