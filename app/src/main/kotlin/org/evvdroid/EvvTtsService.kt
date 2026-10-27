@@ -377,12 +377,10 @@ class EvvTtsService : TextToSpeechService() {
 		requestGeneration: Long,
 		s: Settings?
 	) {
-		// Stopped first, NVDA-style: its driver cancels before every speak,
-		// flushing whatever a previous utterance left behind when the reader
-		// moved on without saying stop. eciStop on an idle engine is safe
-		// here (upstream's fix for that wedge is in this tree).
+		// A completed utterance has already drained its output. Do not call
+		// eciStop before every speak: Code Factory only stops on Android's
+		// onStop path, and native eciStop can wait for an entire rule pass.
 		if (stopGeneration.get() != requestGeneration) return
-		target.stop()
 		if (s != null && s.revision != appliedRevision) applySettings(target)
 		// Re-sent every time rather than once, because it is the one setting
 		// with no way of telling whether something else has moved it.
@@ -456,7 +454,8 @@ class EvvTtsService : TextToSpeechService() {
 					return
 				}
 				if (stopGeneration.get() != requestGeneration) {
-					target.stop()
+					// onStop already aborted the output and queued ECI cleanup.
+					// Do not make this synthesis thread wait for the same stop again.
 					break
 				}
 				if (!pump(target, callback, pace, opening, audio, requestGeneration)) {
