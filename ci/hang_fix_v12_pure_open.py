@@ -5,7 +5,8 @@ from pathlib import Path
 eng_path = Path("app/src/main/kotlin/org/evvdroid/EvvEngine.kt")
 eng = eng_path.read_text()
 if "nativeOpenLock" not in eng:
-    old2 = (
+    # Exact formatting from repo: return line uses two tabs, not three.
+    old = (
         "\t\tfun open(language: Int): EvvEngine? {\n"
         "\t\t\tif (!EvvNative.loaded) {\n"
         "\t\t\t\tLog.e(TAG, \"the native library did not load\", EvvNative.loadError)\n"
@@ -16,9 +17,9 @@ if "nativeOpenLock" not in eng:
         "\t\t\t\tLog.e(TAG, \"no engine instance for language 0x%08x\".format(language))\n"
         "\t\t\t\treturn null\n"
         "\t\t\t}\n"
-        "\t\t\treturn EvvEngine(handle, language).apply { configure() }\n"
-        "\t\t}\n"
-        "\t}"
+        "\t\treturn EvvEngine(handle, language).apply { configure() }\n"
+        "\t}\n"
+        "}"
     )
     new = (
         "\t\tprivate val nativeOpenLock = Any()\n"
@@ -40,9 +41,9 @@ if "nativeOpenLock" not in eng:
         "\t\t}\n"
         "\t}"
     )
-    if old2 not in eng:
+    if old not in eng:
         raise SystemExit("EvvEngine.open not found")
-    eng = eng.replace(old2, new, 1)
+    eng = eng.replace(old, new, 1)
     eng_path.write_text(eng)
     print("EvvEngine.open serialized + timed")
 else:
