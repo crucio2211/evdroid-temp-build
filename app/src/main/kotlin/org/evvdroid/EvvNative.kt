@@ -31,6 +31,9 @@ internal object EvvNative {
 	 *  -1 when it was stopped or something went wrong. */
 	external fun read(handle: Long, dst: ByteArray): Int
 
+	/** Aborts queued output and wakes a blocked reader without waiting for ECI. */
+	external fun abort(handle: Long)
+
 	external fun stop(handle: Long)
 
 	external fun setParam(handle: Long, param: Int, value: Int): Int

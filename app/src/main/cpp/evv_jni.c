@@ -368,10 +368,7 @@ JNIEXPORT jint JNICALL Java_org_evvdroid_EvvNative_read(JNIEnv* env, jclass cls,
 
 /* Wakes the callback before asking the engine to stop, since the callback may
    be waiting for room that a stopped reader will never make. */
-JNIEXPORT void JNICALL Java_org_evvdroid_EvvNative_stop(JNIEnv* env, jclass cls, jlong handle) {
-	instance* in = unwrap(handle);
-	(void)env;
-	(void)cls;
+static void abort_output(instance* in) {
 	if (in == NULL)
 		return;
 	pthread_mutex_lock(&in->lock);
@@ -380,6 +377,21 @@ JNIEXPORT void JNICALL Java_org_evvdroid_EvvNative_stop(JNIEnv* env, jclass cls,
 	pthread_cond_broadcast(&in->room);
 	pthread_cond_broadcast(&in->filled);
 	pthread_mutex_unlock(&in->lock);
+}
+
+JNIEXPORT void JNICALL Java_org_evvdroid_EvvNative_abort(JNIEnv* env, jclass cls, jlong handle) {
+	(void)env;
+	(void)cls;
+	abort_output(unwrap(handle));
+}
+
+JNIEXPORT void JNICALL Java_org_evvdroid_EvvNative_stop(JNIEnv* env, jclass cls, jlong handle) {
+	instance* in = unwrap(handle);
+	(void)env;
+	(void)cls;
+	if (in == NULL)
+		return;
+	abort_output(in);
 	/* And the engine's own queue goes too, or the tail of the stopped
 	 * utterance is still in it and speaks first inside the next one --
 	 * the tiny stale chunk riding the next swipe. eciStop clears the

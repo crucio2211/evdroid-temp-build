@@ -11,6 +11,8 @@ import android.util.Log
 class EvvEngine private constructor(@Volatile private var handle: Long, val language: Int) {
 
 	private val guard = Any()
+	/** Serializes ECI stop against the next speak, but never blocks fast abort. */
+	private val nativeStopGuard = Any()
 	/** Stop must reach ECI while speak/read are in flight. This read/write
 	 *  lock lets stop run concurrently with them, while close still waits until
 	 *  no native call can use the handle it is about to destroy. */
@@ -211,14 +213,16 @@ class EvvEngine private constructor(@Volatile private var handle: Long, val lang
 	 *  be refused. */
 	fun speak(text: String): Boolean = synchronized(guard) {
 		if (closed) return false
-		val life = nativeLifetime.readLock()
-		life.lock()
-		try {
-			if (closed) return false
-			val ask = if (wantSpeed >= 0 && wantPitch >= 0) Prosody.voice(wantSpeed, wantPitch) else ""
-			return EvvNative.speak(handle, EngineText.encode(language, ask + text))
-		} finally {
-			life.unlock()
+		synchronized(nativeStopGuard) {
+			val life = nativeLifetime.readLock()
+			life.lock()
+			try {
+				if (closed) return false
+				val ask = if (wantSpeed >= 0 && wantPitch >= 0) Prosody.voice(wantSpeed, wantPitch) else ""
+				return EvvNative.speak(handle, EngineText.encode(language, ask + text))
+			} finally {
+				life.unlock()
+			}
 		}
 	}
 
@@ -235,7 +239,19 @@ class EvvEngine private constructor(@Volatile private var handle: Long, val lang
 		}
 	}
 
-	fun stop() {
+	/** Fast half of stop: drop audio and wake read() before ECI finishes its
+	 * current native rule pass. Safe to call from Android's onStop thread. */
+	fun abort() {
+		val life = nativeLifetime.readLock()
+		life.lock()
+		try {
+			if (!closed) EvvNative.abort(handle)
+		} finally {
+			life.unlock()
+		}
+	}
+
+	fun stop() = synchronized(nativeStopGuard) {
 		val life = nativeLifetime.readLock()
 		life.lock()
 		try {

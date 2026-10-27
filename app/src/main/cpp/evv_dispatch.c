@@ -45,6 +45,7 @@ typedef jlong (*create_fn)(JNIEnv*, jclass, jint);
 typedef void (*destroy_fn)(JNIEnv*, jclass, jlong);
 typedef jboolean (*speak_fn)(JNIEnv*, jclass, jlong, jbyteArray);
 typedef jint (*read_fn)(JNIEnv*, jclass, jlong, jbyteArray);
+typedef void (*abort_fn)(JNIEnv*, jclass, jlong);
 typedef void (*stop_fn)(JNIEnv*, jclass, jlong);
 typedef jint (*load_dictionary_fn)(JNIEnv*, jclass, jlong, jint, jstring);
 typedef jint (*teach_word_fn)(JNIEnv*, jclass, jlong, jint, jbyteArray, jbyteArray);
@@ -63,6 +64,7 @@ typedef struct {
 	destroy_fn         destroy;
 	speak_fn           speak;
 	read_fn            read;
+	abort_fn           abort;
 	stop_fn            stop;
 	load_dictionary_fn load_dictionary;
 	teach_word_fn      teach_word;
@@ -138,6 +140,7 @@ static language_lib* open_lib(int i) {
 	BIND(destroy, "destroy");
 	BIND(speak, "speak");
 	BIND(read, "read");
+	BIND(abort, "abort");
 	BIND(stop, "stop");
 	BIND(load_dictionary, "loadDictionary");
 	BIND(teach_word, "teachWord");
@@ -221,6 +224,12 @@ JNIEXPORT void JNICALL Java_org_evvdroid_EvvNative_stop(JNIEnv* env, jclass cls,
 	instance* in = unwrap(handle);
 	if (in != NULL)
 		in->lib->stop(env, cls, in->inner);
+}
+
+JNIEXPORT void JNICALL Java_org_evvdroid_EvvNative_abort(JNIEnv* env, jclass cls, jlong handle) {
+	instance* in = unwrap(handle);
+	if (in != NULL)
+		in->lib->abort(env, cls, in->inner);
 }
 
 JNIEXPORT jint JNICALL Java_org_evvdroid_EvvNative_loadDictionary(JNIEnv* env, jclass cls, jlong handle, jint volume, jstring path) {
