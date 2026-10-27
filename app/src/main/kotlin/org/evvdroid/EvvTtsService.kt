@@ -29,14 +29,13 @@ class EvvTtsService : TextToSpeechService() {
 		Thread(task, "evvdroid-engine-cleanup").apply { isDaemon = true }
 	}
 	private val engineLoadLock = Any()
+	/** A stop and the start of the next utterance must not cross in flight.
+	 *  TalkBack can tear down and reconnect quickly; the old utterance's stop
+	 *  must finish before a new one is handed to ECI. */
+	private val speechControlLock = Any()
+	private val stopGeneration = java.util.concurrent.atomic.AtomicLong()
 	private var pendingEngineLanguage: Int? = null
 	private var pendingEngine: java.util.concurrent.Future<EvvEngine?>? = null
-
-	/** Written on one binder thread and read on another: a stop the pump
-	 *  never sees is audio committed past it, and that is the stale sliver
-	 *  at the head of the next utterance. */
-	@Volatile
-	private var stopped = false
 
 	private var appliedRevision = -1
 
@@ -330,13 +329,15 @@ class EvvTtsService : TextToSpeechService() {
 	}
 
 	override fun onStop() {
-		stopped = true
-		engine?.stop()
+		synchronized(speechControlLock) {
+			stopGeneration.incrementAndGet()
+			engine?.stop()
+		}
 	}
 
 	override fun onSynthesizeText(request: SynthesisRequest?, callback: SynthesisCallback?) {
 		if (request == null || callback == null) return
-		stopped = false
+		val requestGeneration = stopGeneration.get()
 		val s = settings
 		val found = matchLanguage(request.language, request.country)
 		if (found == null) {
@@ -360,7 +361,10 @@ class EvvTtsService : TextToSpeechService() {
 		// flushing whatever a previous utterance left behind when the reader
 		// moved on without saying stop. eciStop on an idle engine is safe
 		// here (upstream's fix for that wedge is in this tree).
-		target.stop()
+		synchronized(speechControlLock) {
+			if (stopGeneration.get() != requestGeneration) return
+			target.stop()
+		}
 		if (s != null && s.revision != appliedRevision) applySettings(target)
 		// Re-sent every time rather than once, because it is the one setting
 		// with no way of telling whether something else has moved it.
@@ -404,7 +408,7 @@ class EvvTtsService : TextToSpeechService() {
 		// tune alone. Snapshot.boost stays off (1) until intonation lands.
 		val audio = s?.audioSnapshot() ?: AudioOutput.Snapshot()
 		for ((ri, rawPiece) in rawPieces.withIndex()) {
-			if (stopped) break
+			if (stopGeneration.get() != requestGeneration) break
 			val fixed = TextPipeline.process(
 				rawPiece,
 				emoji = s?.speakEmoji != false,
@@ -421,24 +425,28 @@ class EvvTtsService : TextToSpeechService() {
 			if (text.isEmpty()) continue
 			val pieces = TextPieces.split(text)
 			for ((at, part) in pieces.withIndex()) {
-				if (stopped) break
+				if (stopGeneration.get() != requestGeneration) break
 				val piece = prosody + Pauses.apply(
 					part, pauses,
 					at == pieces.lastIndex && ri == rawPieces.lastIndex
 				)
-		if (!target.speak(piece)) {
-			Log.e(TAG, "the engine refused ${piece.length} characters")
-			callback.error(TextToSpeech.ERROR_SYNTHESIS)
-			return
-		}
-		if (!pump(target, callback, pace, opening, audio)) {
+				val accepted = synchronized(speechControlLock) {
+					if (stopGeneration.get() != requestGeneration) false else target.speak(piece)
+				}
+				if (!accepted) {
+					if (stopGeneration.get() != requestGeneration) break
+					Log.e(TAG, "the engine refused ${piece.length} characters")
+					callback.error(TextToSpeech.ERROR_SYNTHESIS)
+					return
+				}
+				if (!pump(target, callback, pace, opening, audio, requestGeneration)) {
 					remember(pace)
 					return
 				}
 			}
 		}
 		remember(pace)
-		if (stopped) {
+		if (stopGeneration.get() != requestGeneration) {
 			// Over, not done: finishing the callback flushes the tail it
 			// is still holding, and that tail sounds at the head of
 			// whatever comes next. A stopped utterance is left unfinished;
@@ -453,34 +461,41 @@ class EvvTtsService : TextToSpeechService() {
 	/** Hands one piece's samples on as they arrive, and answers whether the
 	 *  caller may go on to the next. The output stage is one chain for the
 	 *  piece, so its filters run continuously across its chunks. */
-	private fun pump(target: EvvEngine, callback: SynthesisCallback, pace: Pace, opening: Opening, audio: AudioOutput.Snapshot): Boolean {
+	private fun pump(target: EvvEngine, callback: SynthesisCallback, pace: Pace, opening: Opening, audio: AudioOutput.Snapshot, requestGeneration: Long): Boolean {
 		val size = callback.maxBufferSize.coerceIn(MIN_CHUNK, MAX_CHUNK)
 		val buffer = ByteArray(size)
 		val chain = AudioOutput.Chain(audio)
-		while (!stopped) {
+		while (stopGeneration.get() == requestGeneration) {
 			val n = target.read(buffer)
 			if (n <= 0) break
 			// A chunk taken before the stop landed dies here, unplayed:
 			// handing it over gives the framework audio for an utterance
 			// already over, and it sounds at the head of the next one.
-			if (stopped) {
-				target.stop()
+			if (stopGeneration.get() != requestGeneration) {
 				return false
 			}
 			chain.process(buffer, n)
 			if (!opening.open()) {
-				target.stop()
+				stopIfCurrent(target, requestGeneration)
 				return false
 			}
 			if (callback.audioAvailable(buffer, 0, n) != TextToSpeech.SUCCESS) {
 				// The framework has torn the callback down already, so done()
 				// is neither wanted nor listened to.
-				target.stop()
+				stopIfCurrent(target, requestGeneration)
 				return false
 			}
 			pace.handed(n)
 		}
 		return true
+	}
+
+	/** A late callback failure from an interrupted utterance must not stop the
+	 *  next utterance after TalkBack reconnects. */
+	private fun stopIfCurrent(target: EvvEngine, requestGeneration: Long) {
+		synchronized(speechControlLock) {
+			if (stopGeneration.get() == requestGeneration) target.stop()
+		}
 	}
 
 	private fun remember(pace: Pace) {
