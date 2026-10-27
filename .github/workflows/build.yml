@@ -1,6 +1,6 @@
 name: build
 
-# Hang fixes: v2 async, v3 no lock during speech, v4 never eciLoadDict for text dicts.
+# Hang v2-v4; rate/stop v5.
 
 on:
   push:
@@ -31,11 +31,13 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Restore EvvTtsService + hang fixes v2/v3/v4
+      - name: Restore EvvTtsService + fixes v2-v5
         run: |
           python3 ci/hang_fix_evvtts.py
           python3 ci/hang_fix_v3_extra.py
           python3 ci/hang_fix_v4_no_eciload.py
+          python3 ci/hang_fix_v5_rate_stop.py
+          python3 ci/fix_evvengine_rate.py
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
