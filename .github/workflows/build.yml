@@ -1,6 +1,6 @@
 name: build
 
-# Hang v2-v4; rate/stop v5.
+# Hang v2-v4; rate v5; dict-thread + eciStop v6.
 
 on:
   push:
@@ -31,12 +31,13 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Restore EvvTtsService + fixes v2-v5
+      - name: Restore EvvTtsService + fixes v2-v6
         run: |
           python3 ci/hang_fix_evvtts.py
           python3 ci/hang_fix_v3_extra.py
           python3 ci/hang_fix_v4_no_eciload.py
           python3 ci/hang_fix_v5_rate_stop.py
+          python3 ci/hang_fix_v6.py
           python3 ci/fix_evvengine_rate.py
 
       - name: Set up JDK 17
