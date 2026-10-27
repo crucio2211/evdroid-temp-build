@@ -1,6 +1,6 @@
 name: build
 
-# teachWord dicts + defer + prewarm/minimal open for cold eciNewEx.
+# v3 only: native dictionary load + no lock during synthesis + fast onDestroy.
 
 on:
   push:
@@ -31,18 +31,10 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Restore EvvTtsService + hang fixes through v10
+      - name: Restore EvvTtsService + v3 only
         run: |
           python3 ci/hang_fix_evvtts.py
           python3 ci/hang_fix_v3_extra.py
-          python3 ci/hang_fix_v4_no_eciload.py
-          python3 ci/hang_fix_v5_rate_stop.py
-          python3 ci/hang_fix_v6.py
-          python3 ci/hang_fix_v7_restore_native_dict.py
-          python3 ci/hang_fix_v8_teachword_fast.py
-          python3 ci/hang_fix_v9_defer_dict.py
-          python3 ci/hang_fix_v10_fast_open.py
-          python3 ci/fix_evvengine_rate.py
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
