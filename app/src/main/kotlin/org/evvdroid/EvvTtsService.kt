@@ -29,6 +29,7 @@ class EvvTtsService : TextToSpeechService() {
 		Thread(task, "evvdroid-engine-cleanup").apply { isDaemon = true }
 	}
 	private val engineLoadLock = Any()
+	private val dictionaryWarmup = java.util.concurrent.CountDownLatch(1)
 	/** A stop and the start of the next utterance must not cross in flight.
 	 *  TalkBack can tear down and reconnect quickly; the old utterance's stop
 	 *  must finish before a new one is handed to ECI. */
@@ -49,7 +50,11 @@ class EvvTtsService : TextToSpeechService() {
 	override fun onCreate() {
 		settings = Settings(this)
 		super.onCreate()
-		warmDictionaryCaches()
+		val defaultLanguage = matchLanguage(Locale.getDefault().language, Locale.getDefault().country)?.first
+			?: EvvEngine.available.firstOrNull()
+		val startupLanguage = defaultLanguage?.let { resolveLanguage(settings, it) }
+		warmDictionaryCaches(startupLanguage)
+		if (startupLanguage != null) requestEngine(startupLanguage)
 		// The emoji table builds on first touch, which
 		// would otherwise land on the first utterance. Warm it here, off
 		// every thread that speaks.
@@ -58,22 +63,28 @@ class EvvTtsService : TextToSpeechService() {
 
 	/** Prepare encoded dictionary files in the background before speech asks
 	 *  the engine to load the native dictionary volumes. */
-	private fun warmDictionaryCaches() {
+	private fun warmDictionaryCaches(language: Int?) {
 		val saved = settings ?: return
 		val paths = saved.dictionaryPaths().filterKeys {
-			saved.useDictionary(it) && (it != Eci.DICT_ABBREVIATION || saved.abbreviations)
+			saved.useDictionary(it) &&
+				(it != Eci.DICT_ABBREVIATION || saved.abbreviations) &&
+				(language == null || saved.dictionaryLanguageResolved(it, EvvEngine.available) == language)
 		}
 		Thread({
-			for ((volume, path) in paths) {
-				try {
-					val file = java.io.File(path)
-					if (file.exists() && !Dictionaries.isBinary(file)) {
-						val language = saved.dictionaryLanguageResolved(volume, EvvEngine.available)
-						Dictionaries.prepareForEngine(file, language)
+			try {
+				for ((volume, path) in paths) {
+					try {
+						val file = java.io.File(path)
+						if (file.exists() && !Dictionaries.isBinary(file)) {
+							val language = saved.dictionaryLanguageResolved(volume, EvvEngine.available)
+							Dictionaries.prepareForEngine(file, language)
+						}
+					} catch (failed: Exception) {
+						Log.e(TAG, "could not warm dictionary volume $volume", failed)
 					}
-				} catch (failed: Exception) {
-					Log.e(TAG, "could not warm dictionary volume $volume", failed)
 				}
+			} finally {
+				dictionaryWarmup.countDown()
 			}
 		}, "evvdroid-dictionary-cache").apply { isDaemon = true }.start()
 	}
@@ -123,6 +134,7 @@ class EvvTtsService : TextToSpeechService() {
 
 	override fun onLoadLanguage(lang: String?, country: String?, variant: String?): Int {
 		val found = matchLanguage(lang, country) ?: return TextToSpeech.LANG_NOT_SUPPORTED
+		requestEngine(resolveLanguage(settings, found.first))
 		return found.second
 	}
 
@@ -174,7 +186,9 @@ class EvvTtsService : TextToSpeechService() {
 		if (findVoice(name) != null) TextToSpeech.SUCCESS else TextToSpeech.ERROR
 
 	override fun onLoadVoice(name: String?): Int {
-		return if (findVoice(name) != null) TextToSpeech.SUCCESS else TextToSpeech.ERROR
+		val found = findVoice(name) ?: return TextToSpeech.ERROR
+		requestEngine(resolveLanguage(settings, found.first))
+		return TextToSpeech.SUCCESS
 	}
 
 	override fun onGetDefaultVoiceNameFor(lang: String?, country: String?, variant: String?): String? {
@@ -208,7 +222,15 @@ class EvvTtsService : TextToSpeechService() {
 			return@synchronized it
 		}
 		pendingEngineLanguage = language
-		engineExecutor.submit<EvvEngine?> { openEngine(language) }.also { pendingEngine = it }
+		engineExecutor.submit<EvvEngine?> {
+			try {
+				dictionaryWarmup.await()
+			} catch (interrupted: InterruptedException) {
+				Thread.currentThread().interrupt()
+				return@submit null
+			}
+			openEngine(language)
+		}.also { pendingEngine = it }
 	}
 
 	private fun ensureEngine(language: Int): EvvEngine? {
