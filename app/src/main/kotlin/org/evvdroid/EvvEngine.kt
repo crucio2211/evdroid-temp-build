@@ -8,9 +8,13 @@ import android.util.Log
  * Everything but [stop] is called from the synthesis thread. [stop] comes from
  * whichever thread asked, which the native side is written for.
  */
-class EvvEngine private constructor(private var handle: Long, val language: Int) {
+class EvvEngine private constructor(@Volatile private var handle: Long, val language: Int) {
 
 	private val guard = Any()
+	/** Stop must reach ECI while speak/read are in flight. This read/write
+	 *  lock lets stop run concurrently with them, while close still waits until
+	 *  no native call can use the handle it is about to destroy. */
+	private val nativeLifetime = java.util.concurrent.locks.ReentrantReadWriteLock()
 	/** Dictionary calls may wait for a running utterance to finish. Keep that
 	 * wait off [guard], which stop() needs in order to abort the utterance. */
 	private val dictionaryGuard = Any()
@@ -207,27 +211,54 @@ class EvvEngine private constructor(private var handle: Long, val language: Int)
 	 *  be refused. */
 	fun speak(text: String): Boolean = synchronized(guard) {
 		if (closed) return false
-		val ask = if (wantSpeed >= 0 && wantPitch >= 0) Prosody.voice(wantSpeed, wantPitch) else ""
-		return EvvNative.speak(handle, EngineText.encode(language, ask + text))
+		val life = nativeLifetime.readLock()
+		life.lock()
+		try {
+			if (closed) return false
+			val ask = if (wantSpeed >= 0 && wantPitch >= 0) Prosody.voice(wantSpeed, wantPitch) else ""
+			return EvvNative.speak(handle, EngineText.encode(language, ask + text))
+		} finally {
+			life.unlock()
+		}
 	}
 
 	/** Bytes of PCM, blocking until there are some. 0 ends the utterance and
 	 *  -1 says it was stopped. */
 	fun read(into: ByteArray): Int {
-		if (closed) return -1
-		return EvvNative.read(handle, into)
+		val life = nativeLifetime.readLock()
+		life.lock()
+		try {
+			if (closed) return -1
+			return EvvNative.read(handle, into)
+		} finally {
+			life.unlock()
+		}
 	}
 
-	fun stop() = synchronized(guard) {
-		if (!closed) EvvNative.stop(handle)
+	fun stop() {
+		val life = nativeLifetime.readLock()
+		life.lock()
+		try {
+			if (!closed) EvvNative.stop(handle)
+		} finally {
+			life.unlock()
+		}
 	}
 
 	fun close() {
+		// Wake a reader before waiting for the exclusive handle lock.
+		stop()
 		synchronized(dictionaryGuard) {
 			val current = synchronized(guard) {
-				if (closed) 0L else {
-					closed = true
-					handle.also { handle = 0 }
+				val life = nativeLifetime.writeLock()
+				life.lock()
+				try {
+					if (closed) 0L else {
+						closed = true
+						handle.also { handle = 0 }
+					}
+				} finally {
+					life.unlock()
 				}
 			}
 			if (current != 0L) EvvNative.destroy(current)

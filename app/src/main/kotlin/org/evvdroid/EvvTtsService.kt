@@ -29,11 +29,9 @@ class EvvTtsService : TextToSpeechService() {
 		Thread(task, "evvdroid-engine-cleanup").apply { isDaemon = true }
 	}
 	private val engineLoadLock = Any()
-	private val dictionaryWarmup = java.util.concurrent.CountDownLatch(1)
-	/** A stop and the start of the next utterance must not cross in flight.
-	 *  TalkBack can tear down and reconnect quickly; the old utterance's stop
-	 *  must finish before a new one is handed to ECI. */
-	private val speechControlLock = Any()
+	/** Language replacement, settings and synthesis share one active engine.
+	 *  onStop deliberately does not take this lock. */
+	private val engineStateLock = Any()
 	private val stopGeneration = java.util.concurrent.atomic.AtomicLong()
 	private var pendingEngineLanguage: Int? = null
 	private var pendingEngine: java.util.concurrent.Future<EvvEngine?>? = null
@@ -50,57 +48,33 @@ class EvvTtsService : TextToSpeechService() {
 	override fun onCreate() {
 		settings = Settings(this)
 		super.onCreate()
-		val defaultLanguage = matchLanguage(Locale.getDefault().language, Locale.getDefault().country)?.first
-			?: EvvEngine.available.firstOrNull()
-		val startupLanguage = defaultLanguage?.let { resolveLanguage(settings, it) }
-		warmDictionaryCaches(startupLanguage)
-		if (startupLanguage != null) requestEngine(startupLanguage)
 		// The emoji table builds on first touch, which
 		// would otherwise land on the first utterance. Warm it here, off
 		// every thread that speaks.
 		Thread({ EmojiNames.STARTERS.size }, "emoji-warmup").start()
 	}
 
-	/** Prepare encoded dictionary files in the background before speech asks
-	 *  the engine to load the native dictionary volumes. */
-	private fun warmDictionaryCaches(language: Int?) {
-		val saved = settings ?: return
-		val paths = saved.dictionaryPaths().filterKeys {
-			saved.useDictionary(it) &&
-				(it != Eci.DICT_ABBREVIATION || saved.abbreviations) &&
-				(language == null || saved.dictionaryLanguageResolved(it, EvvEngine.available) == language)
-		}
-		Thread({
-			try {
-				for ((volume, path) in paths) {
-					try {
-						val file = java.io.File(path)
-						if (file.exists() && !Dictionaries.isBinary(file)) {
-							val language = saved.dictionaryLanguageResolved(volume, EvvEngine.available)
-							Dictionaries.prepareForEngine(file, language)
-						}
-					} catch (failed: Exception) {
-						Log.e(TAG, "could not warm dictionary volume $volume", failed)
-					}
-				}
-			} finally {
-				dictionaryWarmup.countDown()
-			}
-		}, "evvdroid-dictionary-cache").apply { isDaemon = true }.start()
-	}
-
 	override fun onDestroy() {
 		super.onDestroy()
 		engineExecutor.shutdown()
 		try {
-			engineExecutor.awaitTermination(2, java.util.concurrent.TimeUnit.SECONDS)
-			engineCleanupExecutor.shutdown()
+			if (!engineExecutor.awaitTermination(2, java.util.concurrent.TimeUnit.SECONDS)) {
+				engineExecutor.shutdownNow()
+			}
+		} catch (interrupted: InterruptedException) {
+			engineExecutor.shutdownNow()
+			Thread.currentThread().interrupt()
+		}
+		engineCleanupExecutor.shutdown()
+		try {
 			engineCleanupExecutor.awaitTermination(2, java.util.concurrent.TimeUnit.SECONDS)
 		} catch (interrupted: InterruptedException) {
 			Thread.currentThread().interrupt()
 		}
-		engine?.close()
-		engine = null
+		synchronized(engineStateLock) {
+			engine?.close()
+			engine = null
+		}
 	}
 
 	// ---- languages -------------------------------------------------------
@@ -222,15 +196,7 @@ class EvvTtsService : TextToSpeechService() {
 			return@synchronized it
 		}
 		pendingEngineLanguage = language
-		engineExecutor.submit<EvvEngine?> {
-			try {
-				dictionaryWarmup.await()
-			} catch (interrupted: InterruptedException) {
-				Thread.currentThread().interrupt()
-				return@submit null
-			}
-			openEngine(language)
-		}.also { pendingEngine = it }
+		engineExecutor.submit<EvvEngine?> { openEngine(language) }.also { pendingEngine = it }
 	}
 
 	private fun ensureEngine(language: Int): EvvEngine? {
@@ -248,9 +214,10 @@ class EvvTtsService : TextToSpeechService() {
 	/** Called only by [engineExecutor], so changing language cannot race another
 	 *  engine construction. Dictionary files are attached before the task ends. */
 	private fun openEngine(language: Int): EvvEngine? {
+		return synchronized(engineStateLock) {
 		val held = engine
-		if (held != null && held.language == language) return held
-		val made = EvvEngine.open(language) ?: return null
+		if (held != null && held.language == language) return@synchronized held
+		val made = EvvEngine.open(language) ?: return@synchronized null
 		engine = made
 		try {
 			applySettings(made)
@@ -268,7 +235,8 @@ class EvvTtsService : TextToSpeechService() {
 				held.close()
 			}
 		}
-		return made
+		made
+		}
 	}
 
 	private fun applySettings(target: EvvEngine) {
@@ -351,10 +319,8 @@ class EvvTtsService : TextToSpeechService() {
 	}
 
 	override fun onStop() {
-		synchronized(speechControlLock) {
-			stopGeneration.incrementAndGet()
-			engine?.stop()
-		}
+		stopGeneration.incrementAndGet()
+		engine?.stop()
 	}
 
 	override fun onSynthesizeText(request: SynthesisRequest?, callback: SynthesisCallback?) {
@@ -374,19 +340,38 @@ class EvvTtsService : TextToSpeechService() {
 		// unless a language is forced, which overrules every caller.
 		val wanted = findVoice(request.voiceName)
 		val language = resolveLanguage(s, wanted?.first ?: found.first)
-		val target = ensureEngine(language)
-		if (target == null) {
-			callback.error(TextToSpeech.ERROR_SERVICE)
-			return
+		while (true) {
+			val target = ensureEngine(language)
+			if (target == null) {
+				callback.error(TextToSpeech.ERROR_SERVICE)
+				return
+			}
+			val spokeOnCurrentEngine = synchronized(engineStateLock) {
+				if (engine !== target) false else {
+					synthesizeWithEngine(target, request, callback, requestGeneration, s)
+					true
+				}
+			}
+			if (spokeOnCurrentEngine) return
 		}
+	}
+
+	/** Serializes settings and synthesis against language replacement, as the
+	 *  Code Factory service does for its active language engine. onStop remains
+	 *  outside this lock so it can interrupt native speech immediately. */
+	private fun synthesizeWithEngine(
+		target: EvvEngine,
+		request: SynthesisRequest,
+		callback: SynthesisCallback,
+		requestGeneration: Long,
+		s: Settings?
+	) {
 		// Stopped first, NVDA-style: its driver cancels before every speak,
 		// flushing whatever a previous utterance left behind when the reader
 		// moved on without saying stop. eciStop on an idle engine is safe
 		// here (upstream's fix for that wedge is in this tree).
-		synchronized(speechControlLock) {
-			if (stopGeneration.get() != requestGeneration) return
-			target.stop()
-		}
+		if (stopGeneration.get() != requestGeneration) return
+		target.stop()
 		if (s != null && s.revision != appliedRevision) applySettings(target)
 		// Re-sent every time rather than once, because it is the one setting
 		// with no way of telling whether something else has moved it.
@@ -452,14 +437,16 @@ class EvvTtsService : TextToSpeechService() {
 					part, pauses,
 					at == pieces.lastIndex && ri == rawPieces.lastIndex
 				)
-				val accepted = synchronized(speechControlLock) {
-					if (stopGeneration.get() != requestGeneration) false else target.speak(piece)
-				}
+				val accepted = stopGeneration.get() == requestGeneration && target.speak(piece)
 				if (!accepted) {
 					if (stopGeneration.get() != requestGeneration) break
 					Log.e(TAG, "the engine refused ${piece.length} characters")
 					callback.error(TextToSpeech.ERROR_SYNTHESIS)
 					return
+				}
+				if (stopGeneration.get() != requestGeneration) {
+					target.stop()
+					break
 				}
 				if (!pump(target, callback, pace, opening, audio, requestGeneration)) {
 					remember(pace)
@@ -515,9 +502,7 @@ class EvvTtsService : TextToSpeechService() {
 	/** A late callback failure from an interrupted utterance must not stop the
 	 *  next utterance after TalkBack reconnects. */
 	private fun stopIfCurrent(target: EvvEngine, requestGeneration: Long) {
-		synchronized(speechControlLock) {
-			if (stopGeneration.get() == requestGeneration) target.stop()
-		}
+		if (stopGeneration.get() == requestGeneration) target.stop()
 	}
 
 	private fun remember(pace: Pace) {
