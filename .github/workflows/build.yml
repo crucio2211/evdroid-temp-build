@@ -1,6 +1,6 @@
 name: build
 
-# v11: teachWord ALL dictionary entries; never block TalkBack on dict load.
+# v12: pure engine open + teachWord dicts. Languages trimmed to enus/engb to test hang.
 
 on:
   push:
@@ -18,7 +18,8 @@ concurrency:
 env:
   NDK_VERSION: 26.1.10909125
   EVVDROID_ABIS: arm64-v8a,armeabi-v7a
-  EVVDROID_LANGS: lang/enus lang/engb lang/dede lang/eses lang/esus lang/frfr lang/frca lang/itit lang/plpl lang/jajp lang/ptbr lang/fifi
+  # Fewer languages = smaller native tables = faster cold eciNewEx (hang test).
+  EVVDROID_LANGS: lang/enus lang/engb
 
 jobs:
   build:
@@ -31,7 +32,7 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Restore EvvTtsService + v11 hang-safe complete teachWord
+      - name: Restore EvvTtsService + v12 pure open
         run: |
           python3 ci/hang_fix_evvtts.py
           python3 ci/hang_fix_v3_extra.py
@@ -39,6 +40,7 @@ jobs:
           python3 ci/hang_fix_v5_rate_stop.py
           python3 ci/hang_fix_v6.py
           python3 ci/hang_fix_v11_complete.py
+          python3 ci/hang_fix_v12_pure_open.py
           python3 ci/fix_evvengine_rate.py
 
       - name: Set up JDK 17
