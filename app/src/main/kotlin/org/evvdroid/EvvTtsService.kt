@@ -25,9 +25,6 @@ class EvvTtsService : TextToSpeechService() {
 	private val engineExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { task ->
 		Thread(task, "evvdroid-engine-load").apply { isDaemon = true }
 	}
-	private val engineStopExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { task ->
-		Thread(task, "evvdroid-engine-stop").apply { isDaemon = true }
-	}
 	private val engineLoadLock = Any()
 	/** Language replacement, settings and synthesis share one active engine.
 	 *  onStop deliberately does not take this lock. */
@@ -63,15 +60,6 @@ class EvvTtsService : TextToSpeechService() {
 			}
 		} catch (interrupted: InterruptedException) {
 			engineExecutor.shutdownNow()
-			Thread.currentThread().interrupt()
-		}
-		engineStopExecutor.shutdown()
-		try {
-			if (!engineStopExecutor.awaitTermination(2, java.util.concurrent.TimeUnit.SECONDS)) {
-				engineStopExecutor.shutdownNow()
-			}
-		} catch (interrupted: InterruptedException) {
-			engineStopExecutor.shutdownNow()
 			Thread.currentThread().interrupt()
 		}
 		synchronized(engineStateLock) {
@@ -321,16 +309,10 @@ class EvvTtsService : TextToSpeechService() {
 
 	override fun onStop() {
 		stopGeneration.incrementAndGet()
-		val target = engine ?: return
-		// Cut already-buffered audio and wake read() on Android's stop thread.
-		// ECI's stop itself waits for its current rule pass, so finish that on a
-		// serial worker; speak() shares its stop guard and cannot race the cleanup.
-		target.abort()
-		try {
-			engineStopExecutor.execute { target.stop() }
-		} catch (_: java.util.concurrent.RejectedExecutionException) {
-			// Service teardown closes the engine and performs the synchronous stop.
-		}
+		// ECI stop waits for its current rule pass and the next speak would wait
+		// behind that cleanup. Abort the callback now; the native worker answers
+		// eciDataAbort, and its next speak waits for that worker to become idle.
+		engine?.abort()
 	}
 
 	override fun onSynthesizeText(request: SynthesisRequest?, callback: SynthesisCallback?) {
@@ -511,7 +493,7 @@ class EvvTtsService : TextToSpeechService() {
 	/** A late callback failure from an interrupted utterance must not stop the
 	 *  next utterance after TalkBack reconnects. */
 	private fun stopIfCurrent(target: EvvEngine, requestGeneration: Long) {
-		if (stopGeneration.get() == requestGeneration) target.stop()
+		if (stopGeneration.get() == requestGeneration) target.abort()
 	}
 
 	private fun remember(pace: Pace) {
