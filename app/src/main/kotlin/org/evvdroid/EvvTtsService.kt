@@ -25,9 +25,6 @@ class EvvTtsService : TextToSpeechService() {
 	private val engineExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { task ->
 		Thread(task, "evvdroid-engine-load").apply { isDaemon = true }
 	}
-	private val engineCleanupExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { task ->
-		Thread(task, "evvdroid-engine-cleanup").apply { isDaemon = true }
-	}
 	private val engineLoadLock = Any()
 	/** Language replacement, settings and synthesis share one active engine.
 	 *  onStop deliberately does not take this lock. */
@@ -63,12 +60,6 @@ class EvvTtsService : TextToSpeechService() {
 			}
 		} catch (interrupted: InterruptedException) {
 			engineExecutor.shutdownNow()
-			Thread.currentThread().interrupt()
-		}
-		engineCleanupExecutor.shutdown()
-		try {
-			engineCleanupExecutor.awaitTermination(2, java.util.concurrent.TimeUnit.SECONDS)
-		} catch (interrupted: InterruptedException) {
 			Thread.currentThread().interrupt()
 		}
 		synchronized(engineStateLock) {
@@ -213,29 +204,28 @@ class EvvTtsService : TextToSpeechService() {
 
 	/** Called only by [engineExecutor], so changing language cannot race another
 	 *  engine construction. Dictionary files are attached before the task ends. */
-	private fun openEngine(language: Int): EvvEngine? {
-		return synchronized(engineStateLock) {
+	private fun openEngine(language: Int): EvvEngine? = synchronized(engineStateLock) {
 		val held = engine
 		if (held != null && held.language == language) return@synchronized held
+
+		// Code Factory releases the previous language before constructing the
+		// next one. Keep the same ordering: two instances of the same native
+		// language library must not overlap during a quick switch back, or its
+		// dictionary state can be torn down underneath the replacement.
+		if (held != null) {
+			engine = null
+			held.close()
+		}
+
 		val made = EvvEngine.open(language) ?: return@synchronized null
 		engine = made
 		try {
 			applySettings(made)
+			made
 		} catch (failed: Exception) {
 			made.close()
-			engine = held
+			engine = null
 			throw failed
-		}
-		// Release the old language after the replacement is ready. Destroying an
-		// engine with large external dictionaries can itself take noticeable time.
-		if (held != null) {
-			try {
-				engineCleanupExecutor.execute { held.close() }
-			} catch (_: java.util.concurrent.RejectedExecutionException) {
-				held.close()
-			}
-		}
-		made
 		}
 	}
 
@@ -549,9 +539,8 @@ class EvvTtsService : TextToSpeechService() {
 		const val TAG = "evvdroid"
 		const val MIN_CHUNK = 1024
 		/** Small commits for a screen reader: what is handed over plays,
-		 *  so a stop waits out at most this much, and speech starts in
-		 *  slivers rather than after whole mouthfuls. */
-		const val MAX_CHUNK = 4096
+		 *  so stop has at most one short chunk already in the framework queue. */
+		const val MAX_CHUNK = 1024
 		const val BYTES_PER_SAMPLE = 2
 	}
 }
