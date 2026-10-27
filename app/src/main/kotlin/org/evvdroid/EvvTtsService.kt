@@ -29,16 +29,21 @@ class EvvTtsService : TextToSpeechService() {
 	/** Language replacement, settings and synthesis share one active engine.
 	 *  onStop deliberately does not take this lock. */
 	private val engineStateLock = Any()
+	/** Keep the active language and the last inactive one ready. Recreating a
+	 *  native engine discards its indexed dictionaries; reopening a large text
+	 *  dictionary on every language round trip is the load delay. */
+	private val enginesByLanguage = java.util.LinkedHashMap<Int, EvvEngine>(4, 0.75f, true)
 	private val stopGeneration = java.util.concurrent.atomic.AtomicLong()
 	private var pendingEngineLanguage: Int? = null
 	private var pendingEngine: java.util.concurrent.Future<EvvEngine?>? = null
 
-	private var appliedRevision = -1
-
-	private var loadedDictionaries: Map<Int, String> = emptyMap()
-	private var loadedDictionaryLangs: Map<Int, Int> = emptyMap()
-	private var loadedDictionaryStamps: Map<Int, Pair<Long, Long>> = emptyMap()
-	private var loadedEngine: EvvEngine? = null
+	private data class DictionarySnapshot(
+		val paths: Map<Int, String>,
+		val languages: Map<Int, Int>,
+		val stamps: Map<Int, Pair<Long, Long>>
+	)
+	private val appliedRevisions = java.util.IdentityHashMap<EvvEngine, Int>()
+	private val loadedDictionaries = java.util.IdentityHashMap<EvvEngine, DictionarySnapshot>()
 	private var loadedRegex: RegexDictionaries.Loaded? = null
 	private var regexEnabled = false
 
@@ -63,7 +68,10 @@ class EvvTtsService : TextToSpeechService() {
 			Thread.currentThread().interrupt()
 		}
 		synchronized(engineStateLock) {
-			engine?.close()
+			enginesByLanguage.values.toSet().forEach { it.close() }
+			enginesByLanguage.clear()
+			appliedRevisions.clear()
+			loadedDictionaries.clear()
 			engine = null
 		}
 	}
@@ -206,27 +214,37 @@ class EvvTtsService : TextToSpeechService() {
 	 *  engine construction. Dictionary files are attached before the task ends. */
 	private fun openEngine(language: Int): EvvEngine? = synchronized(engineStateLock) {
 		val started = System.nanoTime()
-		val held = engine
-		if (held != null && held.language == language) return@synchronized held
+		engine?.takeIf { it.language == language }?.let { return@synchronized it }
 
-		// Code Factory releases the previous language before constructing the
-		// next one. Keep the same ordering: two instances of the same native
-		// language library must not overlap during a quick switch back, or its
-		// dictionary state can be torn down underneath the replacement.
-		if (held != null) {
-			engine = null
-			held.close()
+		val cached = enginesByLanguage[language]
+		if (cached != null) {
+			engine = cached
+			val saved = settings
+			if (saved != null && appliedRevisions[cached] != saved.revision) applySettings(cached)
+			Log.i(TAG, "engine 0x%08x reused with its native dictionaries".format(language))
+			return@synchronized cached
 		}
 
 		val made = EvvEngine.open(language) ?: return@synchronized null
 		engine = made
+		enginesByLanguage[language] = made
 		try {
 			applySettings(made)
 			Log.i(TAG, "engine 0x%08x ready in %d ms".format(language, (System.nanoTime() - started) / 1_000_000L))
+			while (enginesByLanguage.size > MAX_CACHED_ENGINES) {
+				val eldest = enginesByLanguage.entries.iterator().next()
+				enginesByLanguage.remove(eldest.key)
+				appliedRevisions.remove(eldest.value)
+				loadedDictionaries.remove(eldest.value)
+				eldest.value.close()
+			}
 			made
 		} catch (failed: Exception) {
+			enginesByLanguage.remove(language)
+			appliedRevisions.remove(made)
+			loadedDictionaries.remove(made)
 			made.close()
-			engine = null
+			engine = enginesByLanguage.values.lastOrNull()
 			throw failed
 		}
 	}
@@ -235,12 +253,14 @@ class EvvTtsService : TextToSpeechService() {
 		val s = settings ?: return
 		target.setSampleRate(s.sampleRateHz)
 		target.setAbbreviations(s.abbreviations)
-		loadDictionaries(target, s)
+		val dictionariesReady = loadDictionaries(target, s)
 		loadRegexDictionary(s)
 		// A voice is written, so the engine can refuse it while it is speaking.
 		// One that did not land is left unrecorded and asked for again at the
 		// next utterance rather than believed.
-		if (target.applyVoice(s.voice, s.shape(s.voice))) appliedRevision = s.revision
+		if (target.applyVoice(s.voice, s.shape(s.voice)) && dictionariesReady) {
+			appliedRevisions[target] = s.revision
+		}
 	}
 
 	/** The regex dictionary is recompiled when the settings change, which is
@@ -260,7 +280,7 @@ class EvvTtsService : TextToSpeechService() {
 	}
 
 	/** Loads each normalized text dictionary through the engine's native loader. */
-	private fun loadDictionaries(target: EvvEngine, s: Settings) {
+	private fun loadDictionaries(target: EvvEngine, s: Settings): Boolean {
 		// The engine flag below controls its built-in abbreviation list. Keep
 		// the user's abbreviation volume behind the same switch: otherwise a
 		// custom enuabbr dictionary still expands entries such as `jan` when
@@ -273,38 +293,49 @@ class EvvTtsService : TextToSpeechService() {
 			val file = java.io.File(path)
 			file.length() to file.lastModified()
 		}
-		if (want == loadedDictionaries && langs == loadedDictionaryLangs && stamps == loadedDictionaryStamps && target === loadedEngine) return
+		val snapshot = DictionarySnapshot(want, langs, stamps)
+		if (loadedDictionaries[target] == snapshot) return true
 		target.forgetDictionaries()
-		loadedDictionaries = want
-		loadedDictionaryLangs = langs
-		loadedDictionaryStamps = stamps
-		loadedEngine = target
-		loadEngineDictionaries(target, want, langs)
+		loadedDictionaries.remove(target)
+		val ready = loadEngineDictionaries(target, want, langs)
+		if (ready) loadedDictionaries[target] = snapshot
+		return ready
 	}
 
 	/** Binary dictionaries use the engine's saved form. Text dictionaries are
 	 *  normalized and encoded during import/cache warmup, then indexed natively
 	 *  once in their selected volume, matching Code Factory's per-volume loading. */
-	private fun loadEngineDictionaries(target: EvvEngine, want: Map<Int, String>, langs: Map<Int, Int>) {
+	private fun loadEngineDictionaries(target: EvvEngine, want: Map<Int, String>, langs: Map<Int, Int>): Boolean {
+		var ready = true
 		for ((volume, path) in want) {
 			if ((langs[volume] ?: target.language) != target.language) continue
 			val started = System.nanoTime()
 			try {
 				val file = java.io.File(path)
-				if (!file.exists()) continue
+				if (!file.exists()) {
+					ready = false
+					Log.e(TAG, "volume $volume dictionary is missing: ${file.name}")
+					continue
+				}
 				if (Dictionaries.isBinary(file)) {
 					val ok = Dictionaries.loadBinary(target, volume, file)
+					ready = ready && ok
 					Log.i(TAG, "volume $volume: ${file.name} ${if (ok) "loaded by the engine" else "refused by the engine"} in ${(System.nanoTime() - started) / 1_000_000L} ms")
 					continue
 				}
-				val ready = Dictionaries.prepareForEngine(file, target.language)
-				val result = target.loadDictionary(volume, ready.absolutePath)
-				if (result != 0) Log.e(TAG, "volume $volume refused ${file.name}: $result")
+				val prepared = Dictionaries.prepareForEngine(file, target.language)
+				val result = target.loadDictionary(volume, prepared.absolutePath)
+				if (result != 0) {
+					ready = false
+					Log.e(TAG, "volume $volume refused ${file.name}: $result")
+				}
 				Log.i(TAG, "volume $volume: ${file.name} indexed natively in ${(System.nanoTime() - started) / 1_000_000L} ms")
 			} catch (failed: Exception) {
+				ready = false
 				Log.e(TAG, "volume $volume not loaded by the engine after ${(System.nanoTime() - started) / 1_000_000L} ms", failed)
 			}
 		}
+		return ready
 	}
 
 	override fun onStop() {
@@ -362,7 +393,7 @@ class EvvTtsService : TextToSpeechService() {
 		// eciStop before every speak: Code Factory only stops on Android's
 		// onStop path, and native eciStop can wait for an entire rule pass.
 		if (stopGeneration.get() != requestGeneration) return
-		if (s != null && s.revision != appliedRevision) applySettings(target)
+				if (s != null && appliedRevisions[target] != s.revision) applySettings(target)
 		// Re-sent every time rather than once, because it is the one setting
 		// with no way of telling whether something else has moved it.
 		s?.let { target.setAbbreviations(it.abbreviations) }
@@ -539,6 +570,7 @@ class EvvTtsService : TextToSpeechService() {
 
 		const val TAG = "evvdroid"
 		const val MIN_CHUNK = 1024
+		const val MAX_CACHED_ENGINES = 2
 		/** Small commits for a screen reader: what is handed over plays,
 		 *  so stop has at most one short chunk already in the framework queue. */
 		const val MAX_CHUNK = 1024
