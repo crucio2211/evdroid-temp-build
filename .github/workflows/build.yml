@@ -1,6 +1,6 @@
 name: build
 
-# v8: teachWord (no eciLoadDict). Hang: dictExecutor, no lock during speech, eciStop on touch.
+# v8 teachWord + v9 defer dict until first utterance (first-start hang fix).
 
 on:
   push:
@@ -31,7 +31,7 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Restore EvvTtsService + v8 teachWord (hang-safe)
+      - name: Restore EvvTtsService + hang fixes through v9
         run: |
           python3 ci/hang_fix_evvtts.py
           python3 ci/hang_fix_v3_extra.py
@@ -40,6 +40,7 @@ jobs:
           python3 ci/hang_fix_v6.py
           python3 ci/hang_fix_v7_restore_native_dict.py
           python3 ci/hang_fix_v8_teachword_fast.py
+          python3 ci/hang_fix_v9_defer_dict.py
           python3 ci/fix_evvengine_rate.py
 
       - name: Set up JDK 17
