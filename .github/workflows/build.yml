@@ -1,6 +1,6 @@
 name: build
 
-# v19: text dictionaries applied in Java — never eciLoadDict. 12 languages.
+# v19 Java dicts + v20 matching (case fallback, digits/hyphens, multi-word).
 
 on:
   push:
@@ -31,11 +31,12 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Restore EvvTtsService + v19 Java dicts
+      - name: Restore EvvTtsService + v19/v20 dicts
         run: |
           python3 ci/hang_fix_evvtts.py
           python3 ci/hang_fix_v3_extra.py
           python3 ci/hang_fix_v19_java_dict.py
+          python3 ci/hang_fix_v20_dict_match.py
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
