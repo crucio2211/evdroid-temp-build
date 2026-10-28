@@ -49,61 +49,59 @@ if not m:
     else:
         raise SystemExit("loadEngineDictionaries not found")
 else:
-    new_load = (
-        "\t/** Binary: loadBinary when idle. Text: teachWord every entry (NO eciLoadDict).\n"
-        "\t *  teachWord yields while speaking so TalkBack restart is never blocked. */\n"
-        "\tprivate fun loadEngineDictionaries(target: EvvEngine, want: Map<Int, String>, langs: Map<Int, Int>): Boolean {\n"
-        "\t\tvar ready = true\n"
-        "\t\tfor ((volume, path) in want) {\n"
-        "\t\t\tif ((langs[volume] ?: target.language) != target.language) continue\n"
-        "\t\t\tval started = System.nanoTime()\n"
-        "\t\t\ttry {\n"
-        "\t\t\t\tval file = java.io.File(path)\n"
-        "\t\t\t\tif (!file.exists()) {\n"
-        "\t\t\t\t\tready = false\n"
-        "\t\t\t\t\tLog.e(TAG, \"volume $volume dictionary is missing: ${file.name}\")\n"
-        "\t\t\t\t\tcontinue\n"
-        "\t\t\t\t}\n"
-        "\t\t\t\tif (Dictionaries.isBinary(file)) {\n"
-        "\t\t\t\t\twhile (speaking) {\n"
-        "\t\t\t\t\t\ttry { Thread.sleep(40) } catch (_: InterruptedException) {\n"
-        "\t\t\t\t\t\t\tThread.currentThread().interrupt()\n"
-        "\t\t\t\t\t\t\treturn false\n"
-        "\t\t\t\t\t\t}\n"
-        "\t\t\t\t\t}\n"
-        "\t\t\t\t\tval ok = Dictionaries.loadBinary(target, volume, file)\n"
-        "\t\t\t\t\tready = ready && ok\n"
-        "\t\t\t\t\tLog.i(TAG, \"volume $volume: ${file.name} binary ok=$ok in ${(System.nanoTime() - started) / 1_000_000L} ms\")\n"
-        "\t\t\t\t\tcontinue\n"
-        "\t\t\t\t}\n"
-        "\t\t\t\tval entries = Dictionaries.parse(file)\n"
-        "\t\t\t\tLog.i(TAG, \"volume $volume: ${file.name} parsed ${entries.size} entries; teachWord (no eciLoadDict)\")\n"
-        "\t\t\t\tvar taught = 0\n"
-        "\t\t\t\tvar refused = 0\n"
-        "\t\t\t\tval batchStarted = System.nanoTime()\n"
-        "\t\t\t\tfor (pair in entries.values) {\n"
-        "\t\t\t\t\twhile (speaking) {\n"
-        "\t\t\t\t\t\ttry { Thread.sleep(40) } catch (_: InterruptedException) {\n"
-        "\t\t\t\t\t\t\tThread.currentThread().interrupt()\n"
-        "\t\t\t\t\t\t\treturn false\n"
-        "\t\t\t\t\t\t}\n"
-        "\t\t\t\t\t}\n"
-        "\t\t\t\t\ttry {\n"
-        "\t\t\t\t\t\tif (target.teachWord(volume, pair.first, pair.second) == 0) taught++ else refused++\n"
-        "\t\t\t\t\t} catch (_: Exception) {\n"
-        "\t\t\t\t\t\trefused++\n"
-        "\t\t\t\t\t}\n"
-        "\t\t\t\t\tif ((taught + refused) % 128 == 0) Thread.yield()\n"
-        "\t\t\t\t}\n"
-        "\t\t\t\tLog.i(TAG, \"volume $volume: teachWord done taught=$taught refused=$refused in ${(System.nanoTime() - batchStarted) / 1_000_000L} ms\")\n"
-        "\t\t\t} catch (failed: Exception) {\n"
-        "\t\t\t\tready = false\n"
-        "\t\t\t\tLog.e(TAG, \"volume $volume not loaded after ${(System.nanoTime() - started) / 1_000_000L} ms\", failed)\n"
-        "\t\t\t}\n"
-        "\t\t}\n"
-        "\t\treturn ready\n"
-        "\t}"
-    )
+    new_load = r'''	/** Binary: loadBinary when idle. Text: teachWord every entry (NO eciLoadDict).
+	 *  teachWord yields while speaking so TalkBack restart is never blocked. */
+	private fun loadEngineDictionaries(target: EvvEngine, want: Map<Int, String>, langs: Map<Int, Int>): Boolean {
+		var ready = true
+		for ((volume, path) in want) {
+			if ((langs[volume] ?: target.language) != target.language) continue
+			val started = System.nanoTime()
+			try {
+				val file = java.io.File(path)
+				if (!file.exists()) {
+					ready = false
+					Log.e(TAG, "volume $volume dictionary is missing: ${file.name}")
+					continue
+				}
+				if (Dictionaries.isBinary(file)) {
+					while (speaking) {
+						try { Thread.sleep(40) } catch (_: InterruptedException) {
+							Thread.currentThread().interrupt()
+							return false
+						}
+					}
+					val ok = Dictionaries.loadBinary(target, volume, file)
+					ready = ready && ok
+					Log.i(TAG, "volume $volume: ${file.name} binary ok=$ok in ${(System.nanoTime() - started) / 1_000_000L} ms")
+					continue
+				}
+				val entries = Dictionaries.parse(file)
+				Log.i(TAG, "volume $volume: ${file.name} parsed ${entries.size} entries; teachWord (no eciLoadDict)")
+				var taught = 0
+				var refused = 0
+				val batchStarted = System.nanoTime()
+				for (pair in entries.values) {
+					while (speaking) {
+						try { Thread.sleep(40) } catch (_: InterruptedException) {
+							Thread.currentThread().interrupt()
+							return false
+						}
+					}
+					try {
+						if (target.teachWord(volume, pair.first, pair.second) == 0) taught++ else refused++
+					} catch (_: Exception) {
+						refused++
+					}
+					if ((taught + refused) % 128 == 0) Thread.yield()
+				}
+				Log.i(TAG, "volume $volume: teachWord done taught=$taught refused=$refused in ${(System.nanoTime() - batchStarted) / 1_000_000L} ms")
+			} catch (failed: Exception) {
+				ready = false
+				Log.e(TAG, "volume $volume not loaded after ${(System.nanoTime() - started) / 1_000_000L} ms", failed)
+			}
+		}
+		return ready
+	}'''
     text = text[: m.start()] + new_load + text[m.end() :]
     print("loadEngineDictionaries -> teachWord only")
 
