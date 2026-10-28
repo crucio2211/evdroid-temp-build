@@ -1,6 +1,6 @@
 name: build
 
-# v18: no onCreate engine warmup; text dicts via teachWord (never eciLoadDict).
+# v19: text dictionaries applied in Java — never eciLoadDict. 12 languages.
 
 on:
   push:
@@ -31,15 +31,11 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Restore EvvTtsService + v18
+      - name: Restore EvvTtsService + v19 Java dicts
         run: |
           python3 ci/hang_fix_evvtts.py
           python3 ci/hang_fix_v3_extra.py
-          python3 ci/hang_fix_v14_restart.py
-          python3 ci/hang_fix_v15_deactivate.py
-          python3 ci/hang_fix_v16_stop.py
-          python3 ci/hang_fix_v17_defer_dict.py
-          python3 ci/hang_fix_v18_no_warmup_teach.py
+          python3 ci/hang_fix_v19_java_dict.py
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
