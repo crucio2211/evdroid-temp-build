@@ -1,6 +1,6 @@
 name: build
 
-# v16: parallel eciStop, await before speak, keep engines on unbind for fast toggle.
+# v17: eciLoadDict only after first utterance so TalkBack restart is not blocked by dicts.
 
 on:
   push:
@@ -31,13 +31,14 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Restore EvvTtsService + v16 stop improvements
+      - name: Restore EvvTtsService + v17 defer dict
         run: |
           python3 ci/hang_fix_evvtts.py
           python3 ci/hang_fix_v3_extra.py
           python3 ci/hang_fix_v14_restart.py
           python3 ci/hang_fix_v15_deactivate.py
           python3 ci/hang_fix_v16_stop.py
+          python3 ci/hang_fix_v17_defer_dict.py
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
