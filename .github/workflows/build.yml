@@ -1,7 +1,6 @@
 name: build
 
-# v14 only: original native dicts + restart hang fix (dict off engineExecutor).
-# 12 languages restored. No teachWord / deferred settings experiments.
+# v15: close all engines on unbind so TalkBack off/on does not reuse a hung instance.
 
 on:
   push:
@@ -32,11 +31,12 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Restore EvvTtsService + v14 restart fix
+      - name: Restore EvvTtsService + v15 deactivate
         run: |
           python3 ci/hang_fix_evvtts.py
           python3 ci/hang_fix_v3_extra.py
           python3 ci/hang_fix_v14_restart.py
+          python3 ci/hang_fix_v15_deactivate.py
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
