@@ -1,6 +1,7 @@
 name: build
 
-# v13: no JNI on main/binder language APIs; pure open + teachWord dicts.
+# v14 only: original native dicts + restart hang fix (dict off engineExecutor).
+# 12 languages restored. No teachWord / deferred settings experiments.
 
 on:
   push:
@@ -18,7 +19,7 @@ concurrency:
 env:
   NDK_VERSION: 26.1.10909125
   EVVDROID_ABIS: arm64-v8a,armeabi-v7a
-  EVVDROID_LANGS: lang/enus lang/engb
+  EVVDROID_LANGS: lang/enus lang/engb lang/dede lang/eses lang/esus lang/frfr lang/frca lang/itit lang/plpl lang/jajp lang/ptbr lang/fifi
 
 jobs:
   build:
@@ -31,17 +32,11 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Restore EvvTtsService + v13 no-main-native
+      - name: Restore EvvTtsService + v14 restart fix
         run: |
           python3 ci/hang_fix_evvtts.py
           python3 ci/hang_fix_v3_extra.py
-          python3 ci/hang_fix_v4_no_eciload.py
-          python3 ci/hang_fix_v5_rate_stop.py
-          python3 ci/hang_fix_v6.py
-          python3 ci/hang_fix_v11_complete.py
-          python3 ci/hang_fix_v12_pure_open.py
-          python3 ci/hang_fix_v13_no_main_native.py
-          python3 ci/fix_evvengine_rate.py
+          python3 ci/hang_fix_v14_restart.py
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
