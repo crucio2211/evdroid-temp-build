@@ -1,6 +1,6 @@
 name: build
 
-# v17: eciLoadDict only after first utterance so TalkBack restart is not blocked by dicts.
+# v18: no onCreate engine warmup; text dicts via teachWord (never eciLoadDict).
 
 on:
   push:
@@ -31,7 +31,7 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Restore EvvTtsService + v17 defer dict
+      - name: Restore EvvTtsService + v18
         run: |
           python3 ci/hang_fix_evvtts.py
           python3 ci/hang_fix_v3_extra.py
@@ -39,6 +39,7 @@ jobs:
           python3 ci/hang_fix_v15_deactivate.py
           python3 ci/hang_fix_v16_stop.py
           python3 ci/hang_fix_v17_defer_dict.py
+          python3 ci/hang_fix_v18_no_warmup_teach.py
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
