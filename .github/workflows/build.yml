@@ -1,6 +1,6 @@
 name: build
 
-# v23: Java hands dict files to ECI loadDictionary; no speak-path word rewrite.
+# v24: gradual teachWord when speech idle — fixes restart hang, keeps dict quality.
 
 on:
   push:
@@ -31,7 +31,7 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Restore EvvTtsService + v23
+      - name: Restore EvvTtsService + v24 gradual teach
         run: |
           python3 ci/hang_fix_evvtts.py
           python3 ci/hang_fix_v3_extra.py
@@ -40,6 +40,7 @@ jobs:
           python3 ci/hang_fix_v21_teach_eci.py
           python3 ci/hang_fix_v22_java_phonemes.py
           python3 ci/hang_fix_v23_eci_load.py
+          python3 ci/hang_fix_v24_gradual_teach.py
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
