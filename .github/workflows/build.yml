@@ -1,6 +1,6 @@
 name: build
 
-# v21: memory dict + teachWord into ECI (no eciLoadDict hang).
+# v22: Java replaces keys with phonemes in speak text — no teachWord/eciLoadDict.
 
 on:
   push:
@@ -31,13 +31,14 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Restore EvvTtsService + v21 teach ECI
+      - name: Restore EvvTtsService + v22 Java phonemes
         run: |
           python3 ci/hang_fix_evvtts.py
           python3 ci/hang_fix_v3_extra.py
           python3 ci/hang_fix_v19_java_dict.py
           python3 ci/hang_fix_v20_dict_match.py
           python3 ci/hang_fix_v21_teach_eci.py
+          python3 ci/hang_fix_v22_java_phonemes.py
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
