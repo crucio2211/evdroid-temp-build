@@ -1,6 +1,6 @@
 name: build
 
-# v24: gradual teachWord when speech idle — fixes restart hang, keeps dict quality.
+# v25: dict teach async — TalkBack restart speaks immediately; dicts fill in background.
 
 on:
   push:
@@ -31,7 +31,7 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Restore EvvTtsService + v24 gradual teach
+      - name: Restore EvvTtsService + v25
         run: |
           python3 ci/hang_fix_evvtts.py
           python3 ci/hang_fix_v3_extra.py
@@ -41,6 +41,7 @@ jobs:
           python3 ci/hang_fix_v22_java_phonemes.py
           python3 ci/hang_fix_v23_eci_load.py
           python3 ci/hang_fix_v24_gradual_teach.py
+          python3 ci/hang_fix_v25_fast_restart.py
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
