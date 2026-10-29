@@ -1,6 +1,6 @@
 name: build
 
-# v28: 3s quiet after speech (typing); KEEP = no sentence-boundary splits.
+# v29: no teachWord while active; eciLoadDict only after 5s continuous idle.
 
 on:
   push:
@@ -31,7 +31,7 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Restore EvvTtsService + v28
+      - name: Restore EvvTtsService + v29
         run: |
           python3 ci/hang_fix_evvtts.py
           python3 ci/hang_fix_v3_extra.py
@@ -45,6 +45,7 @@ jobs:
           python3 ci/hang_fix_v26_swipe_idle.py
           python3 ci/hang_fix_v27_rate_pauses.py
           python3 ci/hang_fix_v28_typing_pauses.py
+          python3 ci/hang_fix_v29_idle_only.py
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
