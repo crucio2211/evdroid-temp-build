@@ -1,6 +1,6 @@
 name: build
 
-# v26: 600ms quiet after each utterance so swipe/type is not delayed by teachWord.
+# v27: no applyVoice while speaking (rate drops); pause mode from settings snapshot.
 
 on:
   push:
@@ -31,7 +31,7 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Restore EvvTtsService + v26
+      - name: Restore EvvTtsService + v27
         run: |
           python3 ci/hang_fix_evvtts.py
           python3 ci/hang_fix_v3_extra.py
@@ -43,6 +43,7 @@ jobs:
           python3 ci/hang_fix_v24_gradual_teach.py
           python3 ci/hang_fix_v25_fast_restart.py
           python3 ci/hang_fix_v26_swipe_idle.py
+          python3 ci/hang_fix_v27_rate_pauses.py
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
