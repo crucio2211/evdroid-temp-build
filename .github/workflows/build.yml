@@ -1,7 +1,6 @@
 name: build
 
-# RESET: last-good dictionaries (v25 gradual teach) + pause KEEP only (v30).
-# Dropped v26–v29 which broke dicts / restart / latency chasing.
+# v25 dicts + v30/v31 pause KEEP (outer+inner split respect Do not shorten).
 
 on:
   push:
@@ -32,7 +31,7 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Restore EvvTtsService (stable v25 + pause KEEP)
+      - name: Restore EvvTtsService
         run: |
           python3 ci/hang_fix_evvtts.py
           python3 ci/hang_fix_v3_extra.py
@@ -44,6 +43,7 @@ jobs:
           python3 ci/hang_fix_v24_gradual_teach.py
           python3 ci/hang_fix_v25_fast_restart.py
           python3 ci/hang_fix_v30_stable.py
+          python3 ci/hang_fix_v31_pauses.py
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
