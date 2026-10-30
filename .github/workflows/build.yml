@@ -1,6 +1,6 @@
 name: build
 
-# v25 dicts + v30/v31 pause KEEP (outer+inner split respect Do not shorten).
+# Dictionaries: v25 gradual teach. Pauses: EXACT original from 0c3b4718 (no v30/v31).
 
 on:
   push:
@@ -42,8 +42,8 @@ jobs:
           python3 ci/hang_fix_v23_eci_load.py
           python3 ci/hang_fix_v24_gradual_teach.py
           python3 ci/hang_fix_v25_fast_restart.py
-          python3 ci/hang_fix_v30_stable.py
-          python3 ci/hang_fix_v31_pauses.py
+          # deliberately skip v30/v31 pause experiments — they were wrong
+          python3 ci/hang_fix_v32_orig_pauses.py
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
